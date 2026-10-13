@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:PiliPlus/common/design_tokens.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Keeps the full-size player mounted while docking comments. Only its paint
-/// transform changes, so opening a sheet never creates a second decoder.
+/// Resizes the existing player viewport when comments dock. The player stays
+/// mounted, and its video fit uses the available area rather than old black bars.
 class FeedViewport extends StatelessWidget {
   const FeedViewport({
     super.key,
@@ -32,34 +32,17 @@ class FeedViewport extends StatelessWidget {
       final availableHeight = open && !wide
           ? box.maxHeight * (expanded ? .08 : .38)
           : box.maxHeight;
-      final scale = math.min(
-        availableWidth / box.maxWidth,
-        availableHeight / box.maxHeight,
-      );
-      final target = Rect.fromLTWH(
-        (availableWidth - box.maxWidth * scale) / 2,
-        (availableHeight - box.maxHeight * scale) / 2,
-        scale,
-        scale,
-      );
       return Stack(
         fit: StackFit.expand,
         children: [
-          ClipRect(
-            child: TweenAnimationBuilder<Rect?>(
-              tween: RectTween(end: target),
-              duration: AppDesign.motion(context, 320),
-              curve: Curves.easeOutCubic,
-              child: video,
-              builder: (context, rect, child) => Transform.translate(
-                offset: rect!.topLeft,
-                child: Transform.scale(
-                  scale: rect.width,
-                  alignment: Alignment.topLeft,
-                  child: child,
-                ),
-              ),
-            ),
+          AnimatedPositioned(
+            left: 0,
+            top: 0,
+            width: availableWidth,
+            height: availableHeight,
+            duration: AppDesign.motion(context, 320),
+            curve: Curves.easeOutCubic,
+            child: ClipRect(child: video),
           ),
           if (!open) controls,
           if (open) ...[

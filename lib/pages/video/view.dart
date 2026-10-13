@@ -206,7 +206,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       playerBuilder: (context) =>
           videoDetailController.plPlayerController.isPipMode
           ? plPlayer(width: maxWidth, height: maxHeight, isPipMode: true)
-          : videoPlayer(width: maxWidth, height: maxHeight),
+          : LayoutBuilder(
+              builder: (context, constraints) => videoPlayer(
+                width: constraints.maxWidth,
+                height: constraints.maxHeight,
+              ),
+            ),
       onExit: () => _leaveVerticalFeed(pop: true),
       onDetails: _leaveVerticalFeed,
       commentsBuilder: videoDetailController.showReply

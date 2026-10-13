@@ -144,6 +144,8 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         _PlayerProbe.mounts = 0;
         _PlayerProbe.disposals = 0;
+        final pages = PageController(initialPage: 1);
+        addTearDown(pages.dispose);
         var open = false;
         var expanded = false;
         late StateSetter update;
@@ -170,7 +172,16 @@ void main() {
                     return RepaintBoundary(
                       key: screenshotKey,
                       child: FeedViewport(
-                        video: const _PlayerProbe(key: ValueKey('player')),
+                        video: PageView(
+                          controller: pages,
+                          scrollDirection: Axis.vertical,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: const [
+                            SizedBox.expand(),
+                            _PlayerProbe(key: ValueKey('player')),
+                            SizedBox.expand(),
+                          ],
+                        ),
                         controls: const Stack(
                           key: ValueKey('controls'),
                           children: [
@@ -245,6 +256,7 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(_PlayerProbe.mounts, 1);
         expect(_PlayerProbe.disposals, 0);
+        expect(pages.page, closeTo(1, .001));
         expect(find.byKey(const ValueKey('controls')), findsNothing);
         final player = tester.renderObject<RenderBox>(
           find.byKey(const ValueKey('player')),
@@ -256,9 +268,11 @@ void main() {
         if (size.width < 600) {
           expect(playerEnd.dy, lessThanOrEqualTo(header.top + .1));
           expect(header.top, closeTo(size.height * .38, .1));
+          expect(player.size, Size(size.width, size.height * .38));
         } else {
           expect(playerEnd.dx, lessThanOrEqualTo(header.left + .1));
           expect(header.width, closeTo(380, .1));
+          expect(player.size, Size(size.width - 380, size.height));
         }
         await tester.runAsync(() async {
           final boundary =
@@ -287,6 +301,7 @@ void main() {
         expect(find.byKey(const ValueKey('controls')), findsOneWidget);
         expect(_PlayerProbe.mounts, 1);
         expect(_PlayerProbe.disposals, 0);
+        expect(pages.page, closeTo(1, .001));
         await tester.pumpWidget(const SizedBox.shrink());
         expect(_PlayerProbe.disposals, 1);
       },
