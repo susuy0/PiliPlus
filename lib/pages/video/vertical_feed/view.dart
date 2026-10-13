@@ -226,6 +226,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     if (previous == null) return;
     _stopPreload();
     final authorFeed = _feed;
+    final wasSwitching = _switching;
     final target = previous.items[previous.index];
     final position = _returnPosition;
     setState(() {
@@ -239,7 +240,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _pages.hasClients) _pages.jumpToPage(previous.index);
     });
-    var success = widget.playerController.bvid == target.bvid;
+    // A pending UP load may still replace the current player after exit.
+    var success = !wasSwitching && widget.playerController.bvid == target.bvid;
     try {
       if (!success) {
         success = await widget.onSwitch(target);
