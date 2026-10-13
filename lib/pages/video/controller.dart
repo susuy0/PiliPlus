@@ -878,8 +878,10 @@ class VideoDetailController extends GetxController
           owner: heroTag,
         );
       }
+      if (_nextStory?.key == key) _nextStory = null;
     } catch (_) {
       // Preloading is optional; foreground playback keeps its normal retry path.
+      if (current()) _nextStory = null;
     }
     return false;
   }
@@ -1087,7 +1089,9 @@ class VideoDetailController extends GetxController
         if (progress != null) {
           defaultST = Duration(milliseconds: progress);
         } else {
-          defaultST = Duration(milliseconds: data.lastPlayTime);
+          defaultST = plPlayerController.verticalFeedMode
+              ? Duration.zero
+              : Duration(milliseconds: data.lastPlayTime);
         }
       }
 

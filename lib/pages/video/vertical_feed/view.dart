@@ -7,6 +7,8 @@ import 'package:PiliPlus/pages/video/vertical_feed/cover.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/follow_button.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/common/widgets/progress_bar/audio_video_progress_bar.dart';
+import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
@@ -50,6 +52,8 @@ class VerticalVideoFeed extends StatefulWidget {
     this.isPipMode = false,
     this.onPreload,
     this.onCancelPreload,
+    this.author,
+    this.authorLoader,
   });
 
   final StoryVideoItem seed;
@@ -66,6 +70,9 @@ class VerticalVideoFeed extends StatefulWidget {
   final bool isPipMode;
   final Future<bool> Function(StoryVideoItem)? onPreload;
   final VoidCallback? onCancelPreload;
+  final Owner? author;
+  final StoryPageLoader Function(Owner owner, StoryVideoItem seed)?
+  authorLoader;
 
   @override
   State<VerticalVideoFeed> createState() => _VerticalVideoFeedState();
@@ -91,7 +98,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       !_switching &&
       (_desktopPip || (!_commentsOpen && !_titleExpanded)) &&
       _seekSeconds == null;
-  late final _feed = VerticalFeedController<StoryVideoItem>(
+  late var _feed = VerticalFeedController<StoryVideoItem>(
     seed: widget.seed,
     loadPage: widget.loadPage,
     idOf: (item) => item.aid!,
@@ -99,6 +106,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       if (mounted) setState(() {});
     },
   );
+  VerticalFeedController<StoryVideoItem>? _returnFeed;
+  int _returnPosition = 0;
+  late Owner? _author = widget.author;
   late int _playingAid = widget.seed.aid!;
   final _presentations =
       <
@@ -158,6 +168,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   }
 
   void _back() {
+    if (_switching && _returnFeed == null) {
+      widget.onExit();
+      return;
+    }
     if (_keyboardVisible) {
       FocusManager.instance.primaryFocus?.unfocus();
       SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
@@ -170,9 +184,80 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       }
     } else if (_titleExpanded) {
       setState(() => _titleExpanded = false);
+    } else if (_returnFeed != null) {
+      _leaveAuthorFeed();
     } else {
       widget.onExit();
     }
+  }
+
+  void _openAuthorFeed(Owner owner) {
+    if (_switching ||
+        _author != null ||
+        owner.mid == null ||
+        owner.mid! <= 0 ||
+        widget.authorLoader == null ||
+        _feed.index >= _feed.items.length)
+      return;
+    _rememberCurrent();
+    _stopPreload();
+    final seed = _feed.items[_feed.index];
+    _returnPosition = widget.playerController.position.value;
+    _returnFeed = _feed;
+    setState(() {
+      _author = owner;
+      _titleExpanded = false;
+      _playbackError = false;
+      _feed = VerticalFeedController<StoryVideoItem>(
+        seed: seed,
+        loadPage: widget.authorLoader!(owner, seed),
+        idOf: (item) => item.aid!,
+        onChanged: () {
+          if (mounted) setState(() {});
+        },
+      );
+    });
+    if (_pages.hasClients) _pages.jumpToPage(0);
+    _feed.loadMore();
+  }
+
+  Future<void> _leaveAuthorFeed() async {
+    final previous = _returnFeed;
+    if (previous == null) return;
+    _stopPreload();
+    final authorFeed = _feed;
+    final target = previous.items[previous.index];
+    final position = _returnPosition;
+    setState(() {
+      _feed = previous;
+      _returnFeed = null;
+      _author = widget.author;
+      _switching = true;
+      _playbackError = false;
+    });
+    authorFeed.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pages.hasClients) _pages.jumpToPage(previous.index);
+    });
+    var success = widget.playerController.bvid == target.bvid;
+    try {
+      if (!success) {
+        success = await widget.onSwitch(target);
+        if (success && mounted && position > 0)
+          await widget.playerController.seekTo(
+            Duration(seconds: position),
+            isSeek: false,
+          );
+      }
+    } catch (_) {
+      success = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _switching = false;
+      _playbackError = !success;
+      if (success) _playingAid = target.aid!;
+    });
   }
 
   late bool _paused = widget.playerController.playerStatus.isPaused;
@@ -183,6 +268,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     if (status.isPaused && !_switching && _ownsPlayback) {
       _stopPreload();
     }
+    if (status.isPlaying) _preloadNext();
   }
 
   bool get _ownsPlayback =>
@@ -220,7 +306,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     final player = widget.playerController;
     if (!player.playerStatus.isPlaying ||
         player.isBuffering.value ||
-        (player.buffered.value - player.position.value < 2 &&
+        (player.buffered.value - player.position.value < 1 &&
             !(player.duration.value > 0 &&
                 player.buffered.value >= player.duration.value))) {
       if (_warming) {
@@ -259,7 +345,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     widget.playerController.addStatusLister(_onPlayerStatus);
     _feed.loadMore();
     _preloadTimer = Timer.periodic(
-      const Duration(seconds: 2),
+      const Duration(milliseconds: 500),
       (_) => _preloadNext(),
     );
     if (widget.onPreload != null) {
@@ -286,6 +372,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     widget.playerController.videoFit.value = _originalFit;
     widget.playerController.removeStatusLister(_onPlayerStatus);
     _feed.dispose();
+    _returnFeed?.dispose();
     _wheelGate.dispose();
     _pages.dispose();
     super.dispose();
@@ -318,6 +405,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   Future<void> _activate(int index) async {
     if (!mounted || _switching || index >= _feed.items.length) return;
     _rememberCurrent();
+    final sourceFeed = _feed;
     final item = _feed.items[index];
     setState(() {
       _feed.index = index;
@@ -333,7 +421,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     } catch (_) {
       success = false;
     }
-    if (!mounted) return;
+    if (!mounted || !identical(_feed, sourceFeed)) return;
     setState(() {
       _switching = false;
       _playbackError = !success;
@@ -344,9 +432,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   }
 
   Future<void> _loadFromTail() async {
+    final sourceFeed = _feed;
     final requestedIndex = _feed.index;
     await _feed.loadMore();
-    if (!mounted) return;
+    if (!mounted || !identical(_feed, sourceFeed)) return;
     if (_feed.index == requestedIndex && requestedIndex < _feed.items.length) {
       await _activate(requestedIndex);
     }
@@ -633,7 +722,11 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                     Positioned(
                       top: FeedChrome.navigationTop(context),
                       left: 8,
-                      child: _topButton('返回', Icons.arrow_back_rounded, _back),
+                      child: _topButton(
+                        _author == null ? '返回' : '退出UP主视频',
+                        Icons.arrow_back_rounded,
+                        _back,
+                      ),
                     ),
                   ],
                 ),
@@ -736,8 +829,25 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             Positioned(
               top: FeedChrome.navigationTop(context),
               left: 8,
-              child: _topButton('返回', Icons.arrow_back_rounded, _back),
+              child: _topButton(
+                _author == null ? '返回' : '退出UP主视频',
+                Icons.arrow_back_rounded,
+                _back,
+              ),
             ),
+            if (_author != null && !PlatformUtils.isDesktop)
+              Positioned(
+                top: FeedChrome.navigationTop(context) + 14,
+                left: 64,
+                right: 64,
+                child: Text(
+                  '${_author!.name ?? 'UP主'}的视频',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
             if (PlatformUtils.isDesktop || widget.onPip != null)
               Positioned(
                 top: FeedChrome.navigationTop(context),
@@ -999,8 +1109,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             ),
             const SizedBox(height: 16),
             FilledButton.tonal(
-              onPressed: _loadFromTail,
-              child: const Text('重新加载'),
+              onPressed: _feed.ended ? _back : _loadFromTail,
+              child: Text(_feed.ended ? '退出UP主视频' : '重新加载'),
             ),
             TextButton(
               onPressed: widget.onDetails,
@@ -1223,6 +1333,21 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                         ),
                 ),
                 const SizedBox(height: 4),
+                if (_author == null &&
+                    widget.authorLoader != null &&
+                    owner.mid != null)
+                  TextButton.icon(
+                    onPressed: ready
+                        ? () => _openAuthorFeed(
+                            Owner(mid: owner.mid, name: owner.name, face: face),
+                          )
+                        : null,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppDesign.playerMuted,
+                    ),
+                    icon: const Icon(Icons.video_library_outlined, size: 16),
+                    label: const Text('UP主视频', style: TextStyle(fontSize: 12)),
+                  ),
                 TextButton.icon(
                   onPressed: active ? widget.onDetails : null,
                   style: TextButton.styleFrom(
@@ -1261,41 +1386,63 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             final position = active
                 ? widget.playerController.position.value
                 : saved?.position ?? 0;
-            return SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: _paused || seeking ? 4 : 2,
-                thumbShape: RoundSliderThumbShape(
-                  enabledThumbRadius: seeking ? 6 : 0,
+            final controller = widget.playerController;
+            final primary = ColorScheme.of(context).primary;
+            return SizedBox(
+              height: 48,
+              child: ProgressBar(
+                progress: (active ? controller.progress : position).clamp(
+                  0,
+                  total > 0 ? total : 0,
                 ),
-                overlayShape: const RoundSliderOverlayShape(
-                  overlayRadius: 16,
-                ),
-              ),
-              child: SizedBox(
-                height: 48,
-                child: Slider(
-                  min: 0,
-                  max: total > 0 ? total.toDouble() : 1,
-                  value: ((active ? _seekSeconds : null) ?? position.toDouble())
-                      .clamp(0, total > 0 ? total : 1)
-                      .toDouble(),
-                  activeColor: Colors.white,
-                  inactiveColor: Colors.white30,
-                  onChangeStart: active && total > 0
-                      ? (value) => setState(() => _seekSeconds = value)
-                      : null,
-                  onChanged: active && total > 0
-                      ? (value) => setState(() => _seekSeconds = value)
-                      : null,
-                  onChangeEnd: active
-                      ? (value) {
-                          widget.playerController.seekTo(
-                            Duration(seconds: value.toInt()),
+                buffered: active ? controller.buffered.value : 0,
+                total: total > 0 ? total : 0,
+                progressBarColor: primary,
+                baseBarColor: const Color(0x33FFFFFF),
+                bufferedBarColor: primary.withValues(alpha: .4),
+                thumbColor: primary,
+                thumbGlowColor: primary.withAlpha(80),
+                barHeight: 3.5,
+                thumbRadius: 7,
+                thumbGlowRadius: 25,
+                onDragStart: active && total > 0
+                    ? (details) {
+                        feedBack();
+                        controller.onSeekStart(details.seconds);
+                        setState(
+                          () => _seekSeconds = details.seconds.toDouble(),
+                        );
+                      }
+                    : null,
+                onDragUpdate: active && total > 0
+                    ? (details) {
+                        if (!controller.isFileSource &&
+                            controller.showSeekPreview)
+                          controller.updatePreviewIndex(details.seconds);
+                        controller.seekPosition.value = details.seconds;
+                        setState(
+                          () => _seekSeconds = details.seconds.toDouble(),
+                        );
+                      }
+                    : null,
+                onDragEnd: active
+                    ? () {
+                        controller.onSeekEnd();
+                        if (mounted) setState(() => _seekSeconds = null);
+                      }
+                    : null,
+                onSeek: active && total > 0
+                    ? (milliseconds) {
+                        controller
+                          ..position.value = milliseconds ~/ 1000
+                          ..onSeekEnd()
+                          ..seekTo(
+                            Duration(milliseconds: milliseconds),
+                            isSeek: false,
                           );
-                          setState(() => _seekSeconds = null);
-                        }
-                      : null,
-                ),
+                        if (mounted) setState(() => _seekSeconds = null);
+                      }
+                    : null,
               ),
             );
           }),

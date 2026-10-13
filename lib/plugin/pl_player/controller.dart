@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, Timer;
+import 'dart:async' show StreamSubscription, Timer, TimeoutException;
 import 'dart:convert' show ascii, utf8;
 import 'dart:io' show Platform;
 import 'dart:math' show max, min;
@@ -135,7 +135,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         final extras = <String, String>{
           'cache': 'yes',
           'cache-secs': '3',
-          'demuxer-max-bytes': '2097152',
+          'demuxer-readahead-secs': '3',
+          'demuxer-max-bytes': '33554432',
           'demuxer-max-back-bytes': '0',
           'demuxer-hysteresis-secs': '1',
         };
@@ -144,14 +145,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           Media(_networkMediaUri(source), extras: extras),
           play: false,
         );
-        bool buffered(Duration value) =>
-            value > Duration.zero ||
-            (player!.state.duration > Duration.zero &&
-                value >= player.state.duration);
-        if (!buffered(player.state.buffer)) {
-          await player.stream.buffer
-              .firstWhere(buffered)
-              .timeout(const Duration(seconds: 6));
+        // Poll also checks cancellation and short-clip EOF when no new buffer
+        // event is emitted. The standby never plays or records viewing history.
+        final deadline = DateTime.now().add(const Duration(seconds: 12));
+        while (!FeedPreloadPolicy.ready(
+          player.state.buffer,
+          player.state.duration,
+          eof: player.getProperty('demuxer-cache-state/eof-cached') == 'yes',
+        )) {
+          if (!current()) throw StateError('superseded preload');
+          if (DateTime.now().isAfter(deadline))
+            throw TimeoutException('next video did not buffer three seconds');
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        if (!onlyPlayAudio.value) {
+          await video.waitUntilFirstFrameRendered.timeout(
+            const Duration(seconds: 3),
+          );
         }
         if (!current()) throw StateError('superseded preload');
         return (player: player, video: video);
@@ -980,7 +990,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     if (verticalFeedMode && dataSource is NetworkSource) {
       final key = _feedSourceKey(dataSource, volume);
-      final warm = _feedPreloader.take(key);
+      final warm = await _feedPreloader.takeWhenReady(key);
       if (warm != null) {
         _feedPreloadOwner = null;
         final old = _videoPlayerController;
@@ -991,11 +1001,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
                 : this.volume.value * 100);
         try {
           await warm.player.setVolume(oldVolume);
+          await warm.player.command(['set', 'demuxer-readahead-secs', '1']);
           for (final entry in buffer.entries) {
             await warm.player.command(['set', entry.key, entry.value]);
           }
-          if (warm.player.current.isNotEmpty)
+          if (warm.player.current.isNotEmpty) {
+            warm.player.current.last.extras?['demuxer-readahead-secs'] = '1';
             warm.player.current.last.extras?.addAll(buffer);
+          }
           await setShader(superResolutionType.value, warm.player);
           if (seekTo != null) await warm.player.seek(seekTo);
         } catch (_) {

@@ -6,6 +6,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show platformAlwaysClampingPhysics;
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models_new/space/space/data.dart';
 import 'package:PiliPlus/models_new/space/space/tab2.dart';
 import 'package:PiliPlus/pages/member/controller.dart';
@@ -111,6 +112,11 @@ class _MemberHomeState extends State<MemberHome>
                         itemBuilder: (context, index) {
                           return VideoCardVMemberHome(
                             videoItem: res.archive!.item![index],
+                            feedAuthor: Owner(
+                              mid: _ctr.mid,
+                              name: _ctr.username,
+                              face: _ctr.userAvatar,
+                            ),
                           );
                         },
                         itemCount: min(

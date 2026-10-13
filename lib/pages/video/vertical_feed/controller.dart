@@ -2,6 +2,10 @@ import 'dart:collection';
 
 typedef FeedPageLoader<T> = Future<List<T>> Function(int page);
 
+class FeedExhausted implements Exception {
+  const FeedExhausted();
+}
+
 /// Owns pagination and a bounded history; playback belongs to the video page.
 class VerticalFeedController<T> {
   VerticalFeedController({
@@ -24,9 +28,10 @@ class VerticalFeedController<T> {
   Future<void>? _pending;
   bool get loading => _pending != null;
   String? error;
+  bool ended = false;
 
   Future<void> loadMore() {
-    if (_disposed) return Future<void>.value();
+    if (_disposed || ended) return Future<void>.value();
     if (_pending case final pending?) return pending;
     _pending = _loadMore().whenComplete(() {
       _pending = null;
@@ -57,6 +62,11 @@ class VerticalFeedController<T> {
         }
       }
       if (!_disposed) error = '暂时没有更多视频，点击重试';
+    } on FeedExhausted {
+      if (!_disposed) {
+        ended = true;
+        error = '已看完该UP主的视频';
+      }
     } catch (_) {
       if (!_disposed) error = '推荐加载失败，点击重试';
     }

@@ -7,6 +7,8 @@ import 'package:PiliPlus/common/widgets/stat/stat.dart';
 import 'package:PiliPlus/common/widgets/video_popup_menu.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
 import 'package:PiliPlus/models/common/stat_type.dart';
+import 'package:PiliPlus/models/model_owner.dart';
+import 'package:PiliPlus/http/search.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
@@ -23,11 +25,13 @@ class VideoCardHMemberVideo extends StatelessWidget {
     this.onTap,
     this.bvid,
     this.fromViewAid,
+    this.feedAuthor,
   });
   final SpaceArchiveItem videoItem;
   final VoidCallback? onTap;
   final dynamic bvid;
   final String? fromViewAid;
+  final Owner? feedAuthor;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +51,7 @@ class VideoCardHMemberVideo extends StatelessWidget {
             onSecondaryTap: PlatformUtils.isMobile ? null : onLongPress,
             onTap:
                 onTap ??
-                () {
+                () async {
                   final isPgc = videoItem.isPgc == true;
                   final isPugv = videoItem.isPugv == true;
                   if ((isPgc || isPugv) && videoItem.uri?.isNotEmpty == true) {
@@ -58,19 +62,33 @@ class VideoCardHMemberVideo extends StatelessWidget {
                       return;
                     }
                   }
-                  if (videoItem.bvid == null || videoItem.cid == null) {
+                  if (videoItem.bvid == null) {
                     return;
                   }
+                  final cid =
+                      videoItem.cid ??
+                      (feedAuthor == null
+                          ? null
+                          : (await SearchHttp.ab2cWithDimension(
+                              bvid: videoItem.bvid,
+                            ))?.cid);
+                  if (cid == null) return;
                   bool isVertical = false;
                   if (videoItem.uri case final uri?) {
                     isVertical = uri.isVerticalFromUri;
                   }
                   PageUtils.toVideoPage(
                     bvid: videoItem.bvid,
-                    cid: videoItem.cid!,
+                    cid: cid,
                     cover: videoItem.cover,
                     title: videoItem.title,
                     isVertical: isVertical,
+                    extraArguments: feedAuthor == null
+                        ? null
+                        : {
+                            'storyFeed': true,
+                            'storyAuthor': feedAuthor,
+                          },
                   );
                 },
             child: Padding(

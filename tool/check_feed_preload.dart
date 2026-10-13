@@ -24,6 +24,52 @@ class Resource {
 }
 
 Future<void> main() async {
+  check(
+    !FeedPreloadPolicy.ready(
+      const Duration(milliseconds: 1),
+      const Duration(seconds: 20),
+    ),
+    'one packet treated as three seconds',
+  );
+  check(
+    !FeedPreloadPolicy.ready(
+      const Duration(milliseconds: 2999),
+      const Duration(seconds: 20),
+    ),
+    'partial three-second cache treated as ready',
+  );
+  check(
+    FeedPreloadPolicy.ready(
+      const Duration(seconds: 3),
+      const Duration(seconds: 20),
+    ),
+    'three-second cache rejected',
+  );
+  check(
+    !FeedPreloadPolicy.ready(
+      const Duration(milliseconds: 800),
+      const Duration(seconds: 2),
+    ),
+    'partial short clip treated as ready',
+  );
+  check(
+    FeedPreloadPolicy.ready(
+      const Duration(seconds: 2),
+      const Duration(seconds: 2),
+    ),
+    'complete short clip rejected',
+  );
+  check(
+    FeedPreloadPolicy.ready(
+      const Duration(milliseconds: 1950),
+      const Duration(seconds: 2),
+      eof: true,
+    ),
+    'cached short EOF rejected',
+  );
+  print(
+    'PASS actual three-second or complete short-clip buffering is required',
+  );
   var checks = 0;
   Future<void> run(String name, Future<void> Function() test) async {
     Resource.live = Resource.peak = 0;
@@ -77,6 +123,21 @@ Future<void> main() async {
       await first && await second && opens == 1,
       'duplicate native allocation',
     );
+    await p.dispose();
+  });
+
+  await run('a nearly completed three-second preload is reused without a second open', () async {
+    final p = pool();
+    final started = Completer<void>();
+    final done = Completer<Resource>();
+    final preparing = p.prepare('next', (_) { started.complete(); return done.future; });
+    await started.future;
+    final adopting = p.takeWhenReady('next');
+    done.complete(Resource());
+    check(await preparing, 'preparation did not finish');
+    final resource = await adopting;
+    check(resource != null && !p.has('next'), 'completed buffer was not transferred');
+    await resource!.close();
     await p.dispose();
   });
   await run(

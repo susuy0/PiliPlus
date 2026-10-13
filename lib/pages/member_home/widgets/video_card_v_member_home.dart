@@ -4,6 +4,7 @@ import 'package:PiliPlus/common/widgets/image/image_save.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/http/search.dart';
 import 'package:PiliPlus/models/common/badge_type.dart';
+import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
 import 'package:PiliPlus/models_new/video/video_detail/dimension.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
@@ -16,10 +17,12 @@ import 'package:material_ui/material_ui.dart';
 // 视频卡片 - 垂直布局
 class VideoCardVMemberHome extends StatelessWidget {
   final SpaceArchiveItem videoItem;
+  final Owner? feedAuthor;
 
   const VideoCardVMemberHome({
     super.key,
     required this.videoItem,
+    this.feedAuthor,
   });
 
   Future<void> onPushDetail() async {
@@ -60,6 +63,12 @@ class VideoCardVMemberHome extends StatelessWidget {
             cover: videoItem.cover,
             title: videoItem.title,
             dimension: dimension,
+            extraArguments: feedAuthor == null
+                ? null
+                : {
+                    'storyFeed': true,
+                    'storyAuthor': feedAuthor,
+                  },
           );
         }
         break;

@@ -1,5 +1,16 @@
 import 'dart:async';
 
+/// Require media packets for the first three seconds, not merely a nonzero
+/// buffer notification. A shorter clip is ready when its complete cache exists.
+abstract final class FeedPreloadPolicy {
+  static const target = Duration(seconds: 3);
+  static bool ready(Duration buffer, Duration duration, {bool eof = false}) =>
+      buffer >= target ||
+      (duration > Duration.zero &&
+          duration <= target &&
+          (buffer >= duration || (eof && buffer > Duration.zero)));
+}
+
 /// Serializes one silent standby resource. A stale load is released before the
 /// next is created; only an exact, unexpired key may be handed to playback.
 class NextVideoPreloader<T> {
@@ -71,6 +82,21 @@ class NextVideoPreloader<T> {
     _pendingKey = null;
     _pending = null;
     return value;
+  }
+
+  Future<T?> takeWhenReady(
+    String key, {
+    Duration patience = const Duration(milliseconds: 350),
+  }) async {
+    if (has(key)) return take(key);
+    final pending = _pendingKey == key ? _pending : null;
+    if (pending == null) return null;
+    try {
+      await pending.timeout(patience);
+    } catch (_) {
+      return null;
+    }
+    return take(key);
   }
 
   Future<void> _releaseReady() async {

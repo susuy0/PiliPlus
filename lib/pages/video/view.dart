@@ -21,6 +21,9 @@ import 'package:PiliPlus/common/widgets/svg/play_icon.dart';
 import 'package:PiliPlus/models/common/episode_panel_type.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
+import 'package:PiliPlus/http/member.dart';
+import 'package:PiliPlus/models/model_owner.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/author_source.dart';
 import 'package:PiliPlus/models/video/story.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_info_model/result.dart';
 import 'package:PiliPlus/models_new/video/video_detail/episode.dart' as ugc;
@@ -72,6 +75,7 @@ import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
+import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/max_screen_size.dart';
 import 'package:PiliPlus/utils/mobile_observer.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
@@ -109,12 +113,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   bool _verticalFeedAttempted = false;
   bool _leavingFeed = false;
   StoryVideoItem? _feedSeed;
+  StoryPageLoader? _initialAuthorLoader;
+  late final Owner? _initialAuthor = Get.arguments['storyAuthor'] as Owner?;
   final _storySessionId = const Uuid().v4().replaceAll('-', '');
 
   void _maybeEnterVerticalFeed(bool vertical) {
     if ((!vertical && Get.arguments['storyFeed'] != true) ||
         _verticalFeedAttempted ||
-        !Pref.enableVerticalStory ||
+        (!Pref.enableVerticalStory && Get.arguments['storyFeed'] != true) ||
         !(PlatformUtils.isMobile || PlatformUtils.isDesktop) ||
         !videoDetailController.isUgc ||
         videoDetailController.isFileSource ||
@@ -129,7 +135,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       cid: videoDetailController.cid.value,
       title: detail.title ?? Get.arguments['title'],
       cover: videoDetailController.cover.value,
-    );
+    )..owner = detail.owner ?? _initialAuthor ?? Owner();
     videoDetailController
       ..autoPlay = true
       ..plPlayerController.verticalFeedMode = true
@@ -197,7 +203,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     final seed = _feedSeed!;
     return VerticalVideoFeed(
       seed: seed,
+      author: _initialAuthor,
+      authorLoader: _authorFeedLoader,
       loadPage: (page) async {
+        if (_initialAuthor case final author?) {
+          return (_initialAuthorLoader ??= _authorFeedLoader(author, seed))(
+            page,
+          );
+        }
         final result = await VideoHttp.storyFeed(
           aid: seed.aid!,
           bvid: seed.bvid!,
@@ -241,6 +254,53 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           ? () => videoDetailController.plPlayerController.enterPip()
           : null,
     );
+  }
+
+  StoryPageLoader _authorFeedLoader(Owner owner, StoryVideoItem seed) {
+    final source = AuthorFeedSource<StoryVideoItem>(
+      afterAid: seed.aid.toString(),
+      fetch: (aid, next) async {
+        final result = await MemberHttp.spaceArchive(
+          type: .video,
+          mid: owner.mid,
+          aid: aid,
+          next: next,
+          order: .pubdate,
+        );
+        if (result case Success(:final response)) {
+          final archives = response.item ?? [];
+          final items = <StoryVideoItem>[];
+          for (final archive in archives) {
+            final id = int.tryParse(archive.param ?? '');
+            if (id == null ||
+                id <= 0 ||
+                archive.goto != 'av' ||
+                archive.isPgc == true ||
+                archive.isPugv == true)
+              continue;
+            items.add(
+              StoryVideoItem(
+                  aid: id,
+                  bvid: archive.bvid ?? IdUtils.av2bv(id),
+                  cid: archive.cid,
+                  title: archive.title,
+                  cover: archive.cover,
+                )
+                ..owner = owner
+                ..duration = max(0, archive.duration),
+            );
+          }
+          return AuthorFeedPage(
+            items: items,
+            aid: archives.lastOrNull?.param,
+            next: response.next,
+            hasNext: response.hasNext != false && archives.isNotEmpty,
+          );
+        }
+        throw StateError(result.toString());
+      },
+    );
+    return source.call;
   }
 
   // intro ctr

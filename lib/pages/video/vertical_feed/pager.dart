@@ -1,4 +1,3 @@
-import 'package:PiliPlus/common/design_tokens.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 
@@ -43,6 +42,7 @@ class FeedPager extends StatelessWidget {
         },
         child: ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(
+            overscroll: false,
             dragDevices: {
               ...ScrollConfiguration.of(context).dragDevices,
               if (desktop) PointerDeviceKind.mouse,
@@ -79,11 +79,10 @@ class FeedPlayerReveal extends StatelessWidget {
   const FeedPlayerReveal({super.key, required this.child});
   final Widget child;
   @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-    tween: Tween(begin: 0, end: 1),
-    duration: AppDesign.motion(context, 180),
-    curve: Curves.easeOut,
+  // Native video textures must stay opaque. The enclosing pager supplies the
+  // transition; fading the whole texture forces an offscreen blend on iOS.
+  Widget build(BuildContext context) => ColoredBox(
+    color: Colors.black,
     child: child,
-    builder: (context, value, child) => Opacity(opacity: value, child: child),
   );
 }

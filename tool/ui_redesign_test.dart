@@ -7,6 +7,7 @@ import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/follow_button.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/common/widgets/progress_bar/audio_video_progress_bar.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:hive_ce/hive.dart';
 
@@ -73,6 +74,81 @@ void main() {
       PanelPlaybackAction.none,
     );
   });
+
+  testWidgets(
+    'original progress bar activates, seeks in milliseconds and cancels cleanly',
+    (tester) async {
+      var enabled = false;
+      var dragging = false;
+      int? seek;
+      late StateSetter update;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return Center(
+                child: SizedBox(
+                  width: 320,
+                  height: 48,
+                  child: ProgressBar(
+                    progress: 20,
+                    buffered: 60,
+                    total: 100,
+                    progressBarColor: Colors.white,
+                    baseBarColor: Colors.white24,
+                    bufferedBarColor: Colors.white54,
+                    thumbColor: Colors.white,
+                    thumbGlowColor: Colors.white24,
+                    barHeight: 3.5,
+                    thumbRadius: 7,
+                    onDragStart: enabled
+                        ? (_) {
+                            dragging = true;
+                          }
+                        : null,
+                    onDragEnd: enabled
+                        ? () {
+                            dragging = false;
+                          }
+                        : null,
+                    onSeek: enabled
+                        ? (value) {
+                            seek = value;
+                          }
+                        : null,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      update(() => enabled = true);
+      await tester.pump();
+      final rect = tester.getRect(find.byType(ProgressBar));
+      final drag = await tester.startGesture(
+        Offset(rect.left + 40, rect.center.dy),
+      );
+      await drag.moveBy(const Offset(200, 0));
+      await drag.up();
+      await tester.pump();
+      expect(seek, inInclusiveRange(70000, 85000));
+      expect(dragging, isFalse);
+      seek = null;
+      final cancelled = await tester.startGesture(
+        Offset(rect.left + 80, rect.center.dy),
+      );
+      await cancelled.moveBy(const Offset(30, 0));
+      await cancelled.cancel();
+      await tester.pump();
+      expect(dragging, isFalse);
+      expect(seek, isNull);
+      update(() => enabled = false);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   test('default accent text has accessible contrast in every theme', () {
     for (final brightness in Brightness.values) {
@@ -187,27 +263,42 @@ void main() {
     },
   );
 
-  testWidgets('video reveal fades in and respects reduced motion', (
+  testWidgets('feed video stays opaque during page transitions', (
     tester,
   ) async {
-    Widget page(bool reduced) => MaterialApp(
-      home: MediaQuery(
-        data: MediaQueryData(disableAnimations: reduced),
-        child: const FeedPlayerReveal(child: ColoredBox(color: Colors.blue)),
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: FeedPlayerReveal(child: ColoredBox(color: Colors.blue)),
       ),
     );
-    await tester.pumpWidget(page(false));
     await tester.pump(const Duration(milliseconds: 60));
     expect(
-      tester.widget<Opacity>(find.byType(Opacity)).opacity,
-      inExclusiveRange(0, 1),
+      find.descendant(
+        of: find.byType(FeedPlayerReveal),
+        matching: find.byType(Opacity),
+      ),
+      findsNothing,
     );
-    await tester.pumpAndSettle();
-    expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpWidget(page(true));
-    await tester.pump();
-    expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 1);
+    expect(
+      find.descendant(
+        of: find.byType(FeedPlayerReveal),
+        matching: find.byType(TweenAnimationBuilder<double>),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester
+          .widget<ColoredBox>(
+            find
+                .descendant(
+                  of: find.byType(FeedPlayerReveal),
+                  matching: find.byType(ColoredBox),
+                )
+                .first,
+          )
+          .color,
+      Colors.black,
+    );
     expect(tester.takeException(), isNull);
   });
 

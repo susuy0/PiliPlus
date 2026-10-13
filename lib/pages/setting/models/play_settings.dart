@@ -195,7 +195,7 @@ List<SettingsModel> get playSettings => [
     defaultVal: true,
   ),
   NormalModel(
-    title: '下一条视频预加载',
+    title: '下一条视频预加载（3秒）',
     leading: const Icon(Icons.downloading_outlined),
     getSubtitle: () =>
         '当前：${const ['关闭', '仅 Wi-Fi / 有线网络', '所有网络'][Pref.storyPreloadMode]}；连续观看时提前准备下一条',
@@ -203,7 +203,7 @@ List<SettingsModel> get playSettings => [
       final mode = await showDialog<int>(
         context: context,
         builder: (context) => SelectDialog<int>(
-          title: '下一条视频预加载',
+          title: '下一条视频预加载（3秒）',
           value: Pref.storyPreloadMode,
           values: const [(0, '关闭'), (1, '仅 Wi-Fi / 有线网络'), (2, '所有网络（使用移动流量）')],
         ),

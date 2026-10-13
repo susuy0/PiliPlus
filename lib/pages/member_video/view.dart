@@ -8,6 +8,7 @@ import 'package:PiliPlus/common/widgets/sliver/sliver_floating_header.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/member/contribute_type.dart';
 import 'package:PiliPlus/models_new/space/space_archive/item.dart';
+import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/pages/common/fab_mixin.dart';
 import 'package:PiliPlus/pages/member/controller.dart';
 import 'package:PiliPlus/pages/member_video/controller.dart';
@@ -229,6 +230,9 @@ class _MemberVideoState extends State<MemberVideo>
                       return VideoCardHMemberVideo(
                         videoItem: response[index],
                         fromViewAid: _controller.fromViewAid,
+                        feedAuthor: _controller.isVideo
+                            ? Owner(mid: widget.mid, name: _controller.username)
+                            : null,
                       );
                     },
                     itemCount: response.length,
