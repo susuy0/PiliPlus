@@ -500,120 +500,124 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           ? MiniScaffold(body: Builder(builder: widget.commentsBuilder!))
           : null,
       sheetHeader: _commentHeader(),
-      video: FeedPager(
-        desktop: PlatformUtils.isDesktop,
-        controller: _pages,
-        enabled: _canNavigate,
-        itemCount: _feed.items.length + 1,
-        onSettled: _onPageSettled,
-        onDragStart: _rememberCurrent,
-        itemBuilder: (context, index) {
-          if (index == _feed.items.length) {
-            return FeedPage(
-              content: _tail(),
-              controls: Stack(
-                children: [
-                  Positioned(
-                    top: MediaQuery.paddingOf(context).top + 8,
-                    left: 8,
-                    child: _topButton('返回', Icons.arrow_back_rounded, _back),
-                  ),
-                ],
-              ),
-            );
-          }
-          final item = _feed.items[index];
-          final active = index == _feed.index;
-          final page = FeedPage(
-            key: ValueKey(item.aid),
-            content: Stack(
-              fit: StackFit.expand,
-              children: [
-                LayoutBuilder(
-                  builder: (context, box) => NetworkImgLayer(
-                    src: item.cover,
-                    width: box.maxWidth,
-                    height: box.maxHeight,
-                    fit: BoxFit.contain,
-                    borderRadius: BorderRadius.zero,
-                  ),
+      video: _wrapWheel(
+        FeedPager(
+          desktop: PlatformUtils.isDesktop,
+          controller: _pages,
+          enabled: _canNavigate,
+          itemCount: _feed.items.length + 1,
+          onSettled: _onPageSettled,
+          onDragStart: _rememberCurrent,
+          itemBuilder: (context, index) {
+            if (index == _feed.items.length) {
+              return FeedPage(
+                content: _tail(),
+                controls: Stack(
+                  children: [
+                    Positioned(
+                      top: MediaQuery.paddingOf(context).top + 8,
+                      left: 8,
+                      child: _topButton('返回', Icons.arrow_back_rounded, _back),
+                    ),
+                  ],
                 ),
-                if (active &&
-                    !_systemPip &&
-                    !_switching &&
-                    !_playbackError &&
-                    item.aid == _playingAid)
-                  FeedPlayerReveal(child: widget.playerBuilder(context)),
-                if (active && _paused && !_switching && !_playbackError)
-                  const Center(
-                    child: IgnorePointer(
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        size: 72,
-                        color: Colors.white70,
+              );
+            }
+            final item = _feed.items[index];
+            final active = index == _feed.index;
+            final page = FeedPage(
+              key: ValueKey(item.aid),
+              content: Stack(
+                fit: StackFit.expand,
+                children: [
+                  LayoutBuilder(
+                    builder: (context, box) => NetworkImgLayer(
+                      src: item.cover,
+                      width: box.maxWidth,
+                      height: box.maxHeight,
+                      fit: BoxFit.contain,
+                      borderRadius: BorderRadius.zero,
+                    ),
+                  ),
+                  if (active &&
+                      !_systemPip &&
+                      !_switching &&
+                      !_playbackError &&
+                      item.aid == _playingAid)
+                    FeedPlayerReveal(child: widget.playerBuilder(context)),
+                  if (active && _paused && !_switching && !_playbackError)
+                    const Center(
+                      child: IgnorePointer(
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          size: 72,
+                          color: Colors.white70,
+                        ),
                       ),
                     ),
-                  ),
-                if (active && _switching)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
+                  if (active && _switching)
+                    const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
                     ),
-                  ),
-                if (active && _playbackError)
-                  Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          color: Colors.white70,
-                          size: 40,
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          '这条视频暂时无法播放',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton.tonal(
-                          onPressed: () => _activate(index),
-                          child: const Text('重新播放'),
-                        ),
-                        TextButton(
-                          onPressed: _next,
-                          child: const Text('跳过这一条'),
-                        ),
-                      ],
+                  if (active && _playbackError)
+                    Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: Colors.white70,
+                            size: 40,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            '这条视频暂时无法播放',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.tonal(
+                            onPressed: () => _activate(index),
+                            child: const Text('重新播放'),
+                          ),
+                          TextButton(
+                            onPressed: _next,
+                            child: const Text('跳过这一条'),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-              ],
-            ),
-            controls: _commentsOpen
-                ? null
-                : IgnorePointer(
-                    ignoring: !active,
-                    child: _pageControls(
-                      item,
-                      active,
-                      active && !_switching && !_playbackError,
+                ],
+              ),
+              controls: _commentsOpen
+                  ? null
+                  : IgnorePointer(
+                      ignoring: !active,
+                      child: _pageControls(
+                        item,
+                        active,
+                        active && !_switching && !_playbackError,
+                      ),
                     ),
-                  ),
-          );
-          return PlatformUtils.isDesktop
-              ? FeedWheelRegion(
-                  gate: _wheelGate,
-                  enabled: _canNavigate,
-                  onTurn: _turn,
-                  child: page,
-                )
-              : page;
-        },
+            );
+            return page;
+          },
+        ),
       ),
       controls: const SizedBox.shrink(),
     ),
   );
+
+  Widget _wrapWheel(Widget child) => PlatformUtils.isDesktop
+      ? FeedWheelRegion(
+          gate: _wheelGate,
+          enabled: _canNavigate,
+          onTurn: _turn,
+          child: child,
+        )
+      : child;
 
   Widget _pageControls(StoryVideoItem item, bool selected, bool ready) =>
       _desktopPip

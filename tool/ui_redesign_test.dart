@@ -241,25 +241,22 @@ void main() {
             body: Row(
               children: [
                 Expanded(
-                  child: FeedPager(
-                    controller: pages,
-                    desktop: true,
-                    itemCount: 4,
-                    onSettled: (_) {},
-                    itemBuilder: (_, index) => FeedWheelRegion(
-                      gate: gate,
-                      onTurn: (direction) {
-                        turns++;
-                        debugPrint(
-                          'wheel turn: index=$index direction=$direction page=${pages.page}',
-                        );
-                        pages.animateToPage(
-                          index + direction,
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOut,
-                        );
-                      },
-                      child: ColoredBox(
+                  child: FeedWheelRegion(
+                    gate: gate,
+                    onTurn: (direction) {
+                      turns++;
+                      pages.animateToPage(
+                        (pages.page ?? 0).round() + direction,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOut,
+                      );
+                    },
+                    child: FeedPager(
+                      controller: pages,
+                      desktop: true,
+                      itemCount: 4,
+                      onSettled: (_) {},
+                      itemBuilder: (_, index) => ColoredBox(
                         color: Colors.black,
                         child: Center(child: Text('Video $index')),
                       ),
@@ -289,9 +286,6 @@ void main() {
           ),
         );
         await tester.pump(const Duration(milliseconds: 50));
-        debugPrint(
-          'wheel frame $i: page=${pages.page} scrolling=${pages.position.isScrollingNotifier.value}',
-        );
       }
       await tester.pumpAndSettle();
       expect(turns, 1);

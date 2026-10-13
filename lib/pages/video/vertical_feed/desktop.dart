@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:PiliPlus/common/widgets/flutter/text_field/editable_text.dart'
     as pili;
 import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -151,7 +152,7 @@ class FeedWheelGate {
   void dispose() => _idle?.cancel();
 }
 
-/// Place inside a PageView item to resolve the wheel before its Scrollable.
+/// Own wheel events over the video viewport, leaving comments independent.
 class FeedWheelRegion extends StatefulWidget {
   const FeedWheelRegion({
     super.key,
@@ -180,6 +181,10 @@ class _FeedWheelRegionState extends State<FeedWheelRegion> {
     if (event is! PointerScrollEvent ||
         event.scrollDelta.dy.abs() <= event.scrollDelta.dx.abs())
       return;
+    if (!widget.enabled) {
+      (widget.gate ?? _ownedGate).add(event.scrollDelta.dy, (_) {});
+      return;
+    }
     GestureBinding.instance.pointerSignalResolver.register(event, (_) {
       if (widget.enabled) {
         (widget.gate ?? _ownedGate).add(event.scrollDelta.dy, (direction) {
@@ -193,11 +198,39 @@ class _FeedWheelRegionState extends State<FeedWheelRegion> {
   }
 
   @override
-  Widget build(BuildContext context) => Listener(
-    behavior: HitTestBehavior.translucent,
-    onPointerSignal: _scroll,
-    child: widget.child,
-  );
+  Widget build(BuildContext context) =>
+      _WheelHitRegion(onSignal: _scroll, child: widget.child);
+}
+
+/// Resolve signals at the video viewport before PageView's own Scrollable.
+/// Child pointer events and trackpad drag gestures still propagate normally.
+class _WheelHitRegion extends SingleChildRenderObjectWidget {
+  const _WheelHitRegion({required this.onSignal, required super.child});
+  final PointerSignalEventListener onSignal;
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _WheelHitBox(onSignal);
+  @override
+  void updateRenderObject(BuildContext context, _WheelHitBox renderObject) {
+    renderObject.onSignal = onSignal;
+  }
+}
+
+class _WheelHitBox extends RenderProxyBox {
+  _WheelHitBox(this.onSignal);
+  PointerSignalEventListener onSignal;
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (!size.contains(position)) return false;
+    result.add(BoxHitTestEntry(this, position));
+    hitTestChildren(result, position: position);
+    return true;
+  }
+
+  @override
+  void handleEvent(PointerEvent event, covariant BoxHitTestEntry entry) {
+    if (event is PointerSignalEvent) onSignal(event);
+  }
 }
 
 class FeedDesktopFrame extends StatelessWidget {
