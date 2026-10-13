@@ -398,7 +398,7 @@ class _PgcIntroPageState extends State<PgcIntroPage> {
 
   Widget actionGrid(PgcStat stat, PgcIntroController introController) {
     return SizedBox(
-      height: 48,
+      height: ActionItem.heightFor(context),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

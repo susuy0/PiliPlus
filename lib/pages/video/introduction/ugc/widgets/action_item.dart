@@ -33,6 +33,11 @@ class ActionItem extends StatelessWidget {
   final void Function([bool])? onCancelTriple;
   final bool _isThumbsUp;
 
+  static double heightFor(BuildContext context) =>
+      (44 + MediaQuery.textScalerOf(context).scale(12) * 1.33)
+          .ceilToDouble()
+          .clamp(64, double.infinity);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -78,7 +83,7 @@ class ActionItem extends StatelessWidget {
         onTapCancel: _isThumbsUp ? onCancelTriple : null,
         child: expand
             ? SizedBox(
-                height: 64,
+                height: heightFor(context),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -99,11 +104,14 @@ class ActionItem extends StatelessWidget {
     final child = Text(
       hasText ? text! : '-',
       key: hasText ? ValueKey(text!) : null,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color: selectStatus
             ? theme.colorScheme.primary
             : theme.colorScheme.outline,
         fontSize: 12,
+        height: 1.33,
       ),
     );
     if (hasText) {

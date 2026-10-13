@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:PiliPlus/common/design_tokens.dart';
+import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/panel_playback.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/viewport.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/action_button.dart';
@@ -64,6 +65,69 @@ void main() {
         greaterThanOrEqualTo(4.5),
       );
     }
+  });
+
+  testWidgets('detail actions have room for large text at 360dp', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(360, 760),
+            textScaler: TextScaler.linear(1.6),
+          ),
+          child: Scaffold(
+            body: Builder(
+              builder: (context) => SizedBox(
+                height: ActionItem.heightFor(context),
+                child: const Row(
+                  children: [
+                    ActionItem(
+                      icon: Icon(Icons.thumb_up_outlined),
+                      semanticsLabel: 'Like',
+                      text: '12.3万',
+                    ),
+                    ActionItem(
+                      icon: Icon(Icons.thumb_down_outlined),
+                      semanticsLabel: 'Dislike',
+                      text: '点踩',
+                    ),
+                    ActionItem(
+                      icon: Icon(Icons.toll_outlined),
+                      semanticsLabel: 'Coin',
+                      text: '3210',
+                    ),
+                    ActionItem(
+                      icon: Icon(Icons.star_border),
+                      semanticsLabel: 'Favorite',
+                      text: '4.5万',
+                    ),
+                    ActionItem(
+                      icon: Icon(Icons.watch_later_outlined),
+                      semanticsLabel: 'Later',
+                      text: '再看',
+                    ),
+                    ActionItem(
+                      icon: Icon(Icons.reply),
+                      semanticsLabel: 'Share',
+                      text: '1820',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(Row)).height, greaterThanOrEqualTo(64));
   });
 
   for (final size in [

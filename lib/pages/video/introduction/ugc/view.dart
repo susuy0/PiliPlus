@@ -462,7 +462,7 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
     VideoStat? stat,
   ) {
     return SizedBox(
-      height: 48,
+      height: ActionItem.heightFor(context),
       child: Row(
         crossAxisAlignment: .start,
         children: [

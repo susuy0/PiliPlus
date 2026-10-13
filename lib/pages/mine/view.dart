@@ -241,7 +241,7 @@ class _MediaPageState extends CommonPageState<MinePage>
   }
 
   Widget _buildUserInfo(ThemeData theme, Color secondary) {
-    final style = TextStyle(
+    const style = TextStyle(
       fontSize: 22,
       fontWeight: FontWeight.w600,
     );
