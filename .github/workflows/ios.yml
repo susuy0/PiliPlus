@@ -9,11 +9,27 @@ on:
         default: ""
         type: string
   workflow_dispatch:
+  push:
+    branches: [vertical-feed]
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'pubspec.*'
+      - 'tool/ui_redesign_test.dart'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-feed-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-macos-app:
-    name: Release IOS
+  build-ios-app:
+    name: Release iOS IPA
     runs-on: macos-26
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -34,13 +50,35 @@ jobs:
         shell: pwsh
         run: lib/scripts/patch.ps1 iOS
 
-      - name: Build iOS
+      - name: Analyze source
+        run: flutter analyze --no-pub --no-fatal-infos
+
+      - name: Check feed interactions
         run: |
-          flutter build ios --release --no-codesign --dart-define-from-file=pili_release.json --no-pub
-          ln -sf ./build/ios/iphoneos Payload
-          # make AltSign happy...
-          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
-          zip -r9 PiliPlus_ios_${{env.version}}.ipa Payload/Runner.app
+          dart tool/check_vertical_feed.dart
+          flutter test --no-pub --reporter expanded tool/ui_redesign_test.dart
+
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign --dart-define-from-file=pili_release.json --no-pub
+
+      - name: Package sideload IPA
+        run: |
+          mkdir -p build/ipa-stage/Payload
+          ditto build/ios/iphoneos/Runner.app build/ipa-stage/Payload/Runner.app
+          app="build/ipa-stage/Payload/Runner.app"
+          # Ad-hoc signing supports sideload tools; this is not App Store signing.
+          find "$app/Frameworks" -type f -name '*.dylib' -exec codesign --force --sign - {} \;
+          find "$app/Frameworks" -depth -type d -name '*.framework' -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          lipo -archs "$app/$executable" > iOS-validation.txt
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" >> iOS-validation.txt
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist" >> iOS-validation.txt
+          codesign -dv "$app" 2>> iOS-validation.txt
+          (cd build/ipa-stage && zip -r9 "../../PiliPlus_ios_${{ env.version }}.ipa" Payload)
+          unzip -t PiliPlus_ios_*.ipa > /dev/null
+          shasum -a 256 PiliPlus_ios_*.ipa >> iOS-validation.txt
 
       - name: Release
         if: ${{ github.event.inputs.tag != '' }}
@@ -54,6 +92,9 @@ jobs:
       - name: Upload ios release
         uses: actions/upload-artifact@v7
         with:
-          archive: false
           name: iOS-release
-          path: PiliPlus_ios_*.ipa
+          path: |
+            PiliPlus_ios_*.ipa
+            iOS-validation.txt
+          if-no-files-found: error
+          retention-days: 14
