@@ -112,6 +112,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               'volume': '0',
               'pause': 'yes',
               'video-sync': Pref.videoSync,
+              if (Pref.autosync != '0') 'autosync': Pref.autosync,
               if (Platform.isAndroid) 'ao': Pref.audioOutput,
             },
           ),

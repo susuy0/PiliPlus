@@ -26,6 +26,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 void main() {
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  if (binding is AutomatedTestWidgetsFlutterBinding) {
+    // testWidgets supplies its own default, overriding the CLI timeout.
+    binding.defaultTestTimeout = const Timeout(Duration(minutes: 2));
+  }
   test('comments resume only playback paused by the panel', () {
     final policy = PanelPlaybackPolicy();
     expect(
@@ -196,21 +201,26 @@ void main() {
     (tester) async {
       late Directory directory;
       await tester.runAsync(() async {
+        debugPrint('Feed cover: opening storage fixture');
         directory = await Directory.systemTemp.createTemp('feed-cover-test');
         Hive.init(directory.path);
         GStorage.setting = await Hive.openBox('feed-cover-settings');
         GStorage.localCache = await Hive.openBox('feed-cover-cache');
+        debugPrint('Feed cover: storage fixture ready');
       });
       addTearDown(
         () => tester.runAsync(() async {
+          debugPrint('Feed cover: closing storage fixture');
           await GStorage.setting.close();
           await GStorage.localCache.close();
           await directory.delete(recursive: true);
+          debugPrint('Feed cover: storage fixture closed');
         }),
       );
       final boundary = GlobalKey();
       for (final brightness in Brightness.values) {
         for (final state in ['missing', 'loading', 'failed']) {
+          debugPrint('Feed cover: checking $brightness / $state');
           await tester.pumpWidget(
             MaterialApp(
               theme: ThemeData(brightness: brightness),
