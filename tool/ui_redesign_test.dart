@@ -27,8 +27,15 @@ import 'package:material_ui/material_ui.dart';
 
 // These layout checks read preferences but never exercise persistent storage.
 class _DefaultPreferencesBox extends Fake implements Box<dynamic> {
+  final _values = <dynamic, dynamic>{};
   @override
-  dynamic get(dynamic key, {dynamic defaultValue}) => defaultValue;
+  dynamic get(dynamic key, {dynamic defaultValue}) =>
+      _values.containsKey(key) ? _values[key] : defaultValue;
+
+  @override
+  Future<void> put(dynamic key, dynamic value) async {
+    _values[key] = value;
+  }
 }
 
 void main() {
