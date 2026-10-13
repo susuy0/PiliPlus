@@ -787,6 +787,7 @@ class _AudioPageState extends State<AudioPage> {
         thumbRadius: 6,
         onDragStart: _onDragStart,
         onDragUpdate: _onDragUpdate,
+        onDragEnd: () => _controller.isDragging = false,
         onSeek: _onSeek,
       ),
     );

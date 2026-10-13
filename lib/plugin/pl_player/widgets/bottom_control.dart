@@ -82,6 +82,7 @@ class BottomControl extends StatelessWidget {
                         thumbGlowRadius: 25,
                         onDragStart: onDragStart,
                         onDragUpdate: onDragUpdate,
+                        onDragEnd: controller.onSeekEnd,
                         onSeek: onSeek,
                       ),
                     ),
