@@ -364,7 +364,11 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   void _desktopCommand(FeedCommand command) {
     final player = widget.playerController;
     final ready =
-        !_switching && !_playbackError && _feed.index < _feed.items.length;
+        !_switching &&
+        !_playbackError &&
+        _feed.index < _feed.items.length &&
+        widget.introController.videoDetail.value.bvid ==
+            _feed.items[_feed.index].bvid;
     switch (command) {
       case FeedCommand.previous:
         _turn(-1);

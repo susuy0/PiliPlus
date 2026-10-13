@@ -181,8 +181,14 @@ class _FeedWheelRegionState extends State<FeedWheelRegion> {
         event.scrollDelta.dy.abs() <= event.scrollDelta.dx.abs())
       return;
     GestureBinding.instance.pointerSignalResolver.register(event, (_) {
-      if (widget.enabled)
-        (widget.gate ?? _ownedGate).add(event.scrollDelta.dy, widget.onTurn);
+      if (widget.enabled) {
+        (widget.gate ?? _ownedGate).add(event.scrollDelta.dy, (direction) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && widget.enabled) widget.onTurn(direction);
+          });
+          WidgetsBinding.instance.scheduleFrame();
+        });
+      }
     });
   }
 

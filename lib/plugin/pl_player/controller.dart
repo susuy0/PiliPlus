@@ -290,7 +290,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _lastWindowBounds = await windowManager.getBounds();
 
     if (showWindowTitleBar) {
-      windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+      await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     }
 
     const shortSide = 280.0;

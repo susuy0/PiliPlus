@@ -250,6 +250,9 @@ void main() {
                       gate: gate,
                       onTurn: (direction) {
                         turns++;
+                        debugPrint(
+                          'wheel turn: index=$index direction=$direction page=${pages.page}',
+                        );
                         pages.animateToPage(
                           index + direction,
                           duration: const Duration(milliseconds: 180),
@@ -286,6 +289,9 @@ void main() {
           ),
         );
         await tester.pump(const Duration(milliseconds: 50));
+        debugPrint(
+          'wheel frame $i: page=${pages.page} activity=${pages.position.activity.runtimeType}',
+        );
       }
       await tester.pumpAndSettle();
       expect(turns, 1);
