@@ -1229,7 +1229,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         _doubleTapGestureRecognizer.addPointer(event);
         longPressRecognizer.addPointer(event);
       }
-      _scaleGestureRecognizer.addPointer(event);
+      if (!widget.verticalFeedMode) _scaleGestureRecognizer.addPointer(event);
     }
   }
 
@@ -1255,6 +1255,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   }
 
   void _onPointerPanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    if (widget.verticalFeedMode) return;
     if (plPlayerController.controlsLock.value) return;
     if (_gestureType == null) {
       final pan = event.pan;
@@ -1984,7 +1985,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     if (PlatformUtils.isDesktop) {
       return Obx(
         () => MouseRegion(
-          cursor: !plPlayerController.showControls.value && isFullScreen
+          cursor: widget.verticalFeedMode
+              ? SystemMouseCursors.basic
+              : !plPlayerController.showControls.value && isFullScreen
               ? SystemMouseCursors.none
               : MouseCursor.defer,
           onEnter: (_) => plPlayerController.controls = true,
@@ -2006,6 +2009,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       color: widget.fill,
       child: Obx(
         () => MouseInteractiveViewer(
+          pointerScrollEnabled: !widget.verticalFeedMode,
+          panZoomEnabled: !widget.verticalFeedMode,
           scaleEnabled: !plPlayerController.controlsLock.value,
           pointerSignalFallback: _onPointerSignal,
           onPointerPanZoomUpdate: _onPointerPanZoomUpdate,

@@ -1,5 +1,6 @@
 import 'package:PiliPlus/common/design_tokens.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 
 /// Commit playback only after both the finger and page snap have stopped.
 class FeedPager extends StatelessWidget {
@@ -11,6 +12,7 @@ class FeedPager extends StatelessWidget {
     required this.onSettled,
     this.onDragStart,
     this.enabled = true,
+    this.desktop = false,
   });
   final PageController controller;
   final int itemCount;
@@ -18,6 +20,7 @@ class FeedPager extends StatelessWidget {
   final ValueChanged<int> onSettled;
   final VoidCallback? onDragStart;
   final bool enabled;
+  final bool desktop;
 
   @override
   Widget build(BuildContext context) =>
@@ -38,15 +41,23 @@ class FeedPager extends StatelessWidget {
           }
           return false;
         },
-        child: PageView.builder(
-          controller: controller,
-          scrollDirection: Axis.vertical,
-          allowImplicitScrolling: true,
-          physics: enabled
-              ? const ClampingScrollPhysics()
-              : const NeverScrollableScrollPhysics(),
-          itemCount: itemCount,
-          itemBuilder: itemBuilder,
+        child: ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {
+              ...ScrollConfiguration.of(context).dragDevices,
+              if (desktop) PointerDeviceKind.mouse,
+            },
+          ),
+          child: PageView.builder(
+            controller: controller,
+            scrollDirection: Axis.vertical,
+            allowImplicitScrolling: true,
+            physics: enabled
+                ? const ClampingScrollPhysics()
+                : const NeverScrollableScrollPhysics(),
+            itemCount: itemCount,
+            itemBuilder: itemBuilder,
+          ),
         ),
       );
 }

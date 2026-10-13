@@ -34,6 +34,8 @@ class MouseInteractiveViewer extends StatefulWidget {
     required this.onPanUpdate,
     required this.onScaleUpdate,
     this.panEnabled = true,
+    this.pointerScrollEnabled = true,
+    this.panZoomEnabled = true,
     this.scaleEnabled = true,
     this.scaleFactor = kDefaultMouseScrollToScaleFactor,
     required this.transformationController,
@@ -54,6 +56,8 @@ class MouseInteractiveViewer extends StatefulWidget {
   final Widget child;
   final bool constrained;
   final bool panEnabled;
+  final bool pointerScrollEnabled;
+  final bool panZoomEnabled;
   final bool scaleEnabled;
   final bool trackpadScrollCausesScale;
   final double scaleFactor;
@@ -494,6 +498,7 @@ class _MouseInteractiveViewerState extends State<MouseInteractiveViewer>
   }
 
   void _receivedPointerSignal(PointerSignalEvent event) {
+    if (!widget.pointerScrollEnabled) return;
     GestureBinding.instance.pointerSignalResolver.register(
       event,
       _handlePointerScroll,
@@ -696,7 +701,9 @@ class _MouseInteractiveViewerState extends State<MouseInteractiveViewer>
       onPointerDown: widget.onPointerDown,
       onPointerUp: widget.onPointerUp,
       onPointerCancel: widget.onPointerCancel,
-      onPointerPanZoomStart: _scaleGestureRecognizer.addPointerPanZoom,
+      onPointerPanZoomStart: widget.panZoomEnabled
+          ? _scaleGestureRecognizer.addPointerPanZoom
+          : null,
       onPointerPanZoomUpdate: widget.onPointerPanZoomUpdate,
       onPointerPanZoomEnd: widget.onPointerPanZoomEnd,
       child: _InteractiveViewerBuilt(

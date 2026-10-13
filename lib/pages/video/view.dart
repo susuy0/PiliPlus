@@ -111,10 +111,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   final _storySessionId = const Uuid().v4().replaceAll('-', '');
 
   void _maybeEnterVerticalFeed(bool vertical) {
-    if (!vertical ||
+    if ((!vertical && Get.arguments['storyFeed'] != true) ||
         _verticalFeedAttempted ||
         !Pref.enableVerticalStory ||
-        !PlatformUtils.isMobile ||
+        !(PlatformUtils.isMobile || PlatformUtils.isDesktop) ||
         !videoDetailController.isUgc ||
         videoDetailController.isFileSource ||
         videoDetailController.isPlayAll) {
@@ -143,9 +143,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     _verticalFeedActive.value = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted || !_verticalFeedActive.value) return;
-      await portraitUpMode();
-      if (!mounted || !_verticalFeedActive.value) return;
-      await videoDetailController.plPlayerController.triggerFullScreen();
+      if (PlatformUtils.isMobile) {
+        await portraitUpMode();
+        if (!mounted || !_verticalFeedActive.value) return;
+        await videoDetailController.plPlayerController.triggerFullScreen();
+      }
       if (!videoDetailController.isQuerying &&
           videoDetailController.videoUrl != null &&
           !videoDetailController.videoState.value) {
@@ -174,11 +176,17 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     if (_leavingFeed) return;
     _leavingFeed = true;
     _verticalFeedActive.value = false;
+    if (PlatformUtils.isDesktop &&
+        videoDetailController.plPlayerController.isDesktopPip) {
+      await videoDetailController.plPlayerController.exitDesktopPip();
+    }
     videoDetailController.plPlayerController.verticalFeedMode = false;
     await videoDetailController.plPlayerController.triggerFullScreen(
       status: false,
     );
-    await videoDetailController.plPlayerController.resetScreenRotation();
+    if (PlatformUtils.isMobile) {
+      await videoDetailController.plPlayerController.resetScreenRotation();
+    }
     if (!mounted) return;
     _leavingFeed = false;
     if (pop) Get.back();
@@ -204,7 +212,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       isPipMode: videoDetailController.plPlayerController.isPipMode,
       introController: ugcIntroController,
       playerBuilder: (context) =>
-          videoDetailController.plPlayerController.isPipMode
+          videoDetailController.plPlayerController.isPipMode &&
+              PlatformUtils.isMobile
           ? plPlayer(width: maxWidth, height: maxHeight, isPipMode: true)
           : LayoutBuilder(
               builder: (context, constraints) => videoPlayer(

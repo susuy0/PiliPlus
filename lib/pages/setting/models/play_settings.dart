@@ -188,8 +188,8 @@ List<SettingsModel> get playSettings => [
     defaultVal: false,
   ),
   const SwitchModel(
-    title: '竖屏短视频模式',
-    subtitle: '竖屏视频默认全屏，上下滑动连续观看推荐视频（手机端）',
+    title: '连续推荐流',
+    subtitle: '竖屏视频进入连续推荐流；支持桌面滚轮、键盘和横竖视频混排',
     leading: Icon(Icons.swipe_vertical_outlined),
     setKey: SettingBoxKey.enableVerticalStory,
     defaultVal: true,

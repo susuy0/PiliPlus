@@ -9,6 +9,21 @@ on:
         default: ""
         type: string
   workflow_dispatch:
+  push:
+    branches: [vertical-feed]
+    paths:
+      - 'lib/**'
+      - 'macos/**'
+      - 'pubspec.*'
+      - 'tool/ui_redesign_test.dart'
+      - '.github/workflows/mac.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-feed-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-mac-app:
@@ -34,17 +49,30 @@ jobs:
         shell: pwsh
         run: lib/scripts/patch.ps1 macOS
 
+      - name: Analyze source
+        run: flutter analyze --no-pub --no-fatal-infos
+
+      - name: Check feed and desktop interactions
+        run: |
+          dart tool/check_vertical_feed.dart
+          flutter test --no-pub --reporter expanded tool/ui_redesign_test.dart
+
       - name: Build Mac
         run: flutter build macos --release --dart-define-from-file=pili_release.json --no-pub
 
-      - name: Prepare Upload
+      - name: Verify and package Mac app
         run: |
-          npm install --global create-dmg
-          create-dmg build/macos/Build/Products/Release/PiliPlus.app || true
-        continue-on-error: true
-
-      - name: Rename DMG
-        run: mv PiliPlus*.dmg PiliPlus_macos_${{ env.version }}.dmg
+          app="build/macos/Build/Products/Release/PiliPlus.app"
+          codesign --verify --deep --strict "$app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo -archs "$app/Contents/MacOS/$executable" > macOS-validation.txt
+          codesign -dv "$app" 2>> macOS-validation.txt
+          mkdir -p build/dmg-stage
+          ditto "$app" build/dmg-stage/PiliPlus.app
+          ln -s /Applications build/dmg-stage/Applications
+          hdiutil create -volname PiliPlus -srcfolder build/dmg-stage -ov -format UDZO "PiliPlus_macos_${{ env.version }}.dmg"
+          ditto -c -k --keepParent "$app" "PiliPlus_macos_${{ env.version }}.app.zip"
+          shasum -a 256 PiliPlus_macos_*.dmg PiliPlus_macos_*.app.zip >> macOS-validation.txt
 
       - name: Release
         if: ${{ github.event.inputs.tag != '' }}
@@ -58,6 +86,8 @@ jobs:
       - name: Upload macos release
         uses: actions/upload-artifact@v7
         with:
-          archive: false
           name: macOS-release
-          path: PiliPlus_macos_*.dmg
+          path: |
+            PiliPlus_macos_*.dmg
+            PiliPlus_macos_*.app.zip
+            macOS-validation.txt

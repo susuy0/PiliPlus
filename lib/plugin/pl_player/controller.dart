@@ -208,6 +208,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       (PlatformUtils.isDesktop && isDesktopPip);
   late bool isDesktopPip = false;
   late Rect _lastWindowBounds;
+  bool _lastWindowAlwaysOnTop = false;
   static Rect? _lastPipBounds;
 
   Rect _adjustPipBounds(Rect lastRect, Size size, double aspectRatio) {
@@ -268,21 +269,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return windowManager.setAlwaysOnTop(value);
   }
 
-  Future<void> exitDesktopPip() {
+  Future<void> exitDesktopPip() async {
+    if (!isDesktopPip) return;
+    await windowManager.setAspectRatio(0);
+    if (showWindowTitleBar) {
+      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
+    }
+    await windowManager.setMinimumSize(const Size(400, 700));
+    await windowManager.setBounds(_lastWindowBounds);
+    await setAlwaysOnTop(_lastWindowAlwaysOnTop);
     isDesktopPip = false;
-    return Future.wait([
-      if (showWindowTitleBar)
-        windowManager.setTitleBarStyle(TitleBarStyle.normal),
-      windowManager.setMinimumSize(const Size(400, 700)),
-      windowManager.setBounds(_lastWindowBounds),
-      setAlwaysOnTop(false),
-      windowManager.setAspectRatio(0),
-    ]);
   }
 
   Future<void> enterDesktopPip() async {
     if (isFullScreen.value) return;
 
+    _lastWindowAlwaysOnTop = isAlwaysOnTop.value;
     isDesktopPip = true;
 
     _lastWindowBounds = await windowManager.getBounds();
@@ -310,15 +312,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     await windowManager.setMinimumSize(minimumSize);
-    setAlwaysOnTop(true);
+    await setAlwaysOnTop(true);
     if (_lastPipBounds != null) {
-      windowManager.setBounds(
+      await windowManager.setBounds(
         _adjustPipBounds(_lastPipBounds!, size, aspectRatio),
       );
     } else {
-      windowManager.setSize(size);
+      await windowManager.setSize(size);
     }
-    windowManager.setAspectRatio(width / height);
+    await windowManager.setAspectRatio(verticalFeedMode ? 0 : width / height);
   }
 
   void toggleDesktopPip() {

@@ -1,3 +1,6 @@
+import 'package:PiliPlus/pages/video/vertical_feed/desktop.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
 
 // Native UI regression checks: player lifetime, comment docking and large text.
@@ -177,6 +180,219 @@ void main() {
     await tester.pump();
     expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 1);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'desktop keys work without swallowing text or Command shortcuts',
+    (tester) async {
+      final commands = <FeedCommand>[];
+      final field = FocusNode();
+      addTearDown(field.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FeedDesktopInput(
+              onCommand: commands.add,
+              child: TextField(focusNode: field),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+      expect(commands, [FeedCommand.next, FeedCommand.pip]);
+      commands.clear();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      expect(commands, isEmpty);
+      field.requestFocus();
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'comment');
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+      expect(commands, isEmpty);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(field.hasFocus, isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      expect(commands, [FeedCommand.playPause]);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'wheel inertia turns one page and comments scroll independently',
+    (tester) async {
+      final pages = PageController();
+      final gate = FeedWheelGate();
+      final comments = ScrollController();
+      addTearDown(pages.dispose);
+      addTearDown(gate.dispose);
+      addTearDown(comments.dispose);
+      var turns = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Row(
+              children: [
+                Expanded(
+                  child: FeedPager(
+                    controller: pages,
+                    desktop: true,
+                    itemCount: 4,
+                    onSettled: (_) {},
+                    itemBuilder: (_, index) => FeedWheelRegion(
+                      gate: gate,
+                      onTurn: (direction) {
+                        turns++;
+                        pages.animateToPage(
+                          index + direction,
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                        );
+                      },
+                      child: ColoredBox(
+                        color: Colors.black,
+                        child: Center(child: Text('Video $index')),
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 200,
+                  child: ListView.builder(
+                    controller: comments,
+                    itemCount: 50,
+                    itemExtent: 60,
+                    itemBuilder: (_, index) => Text('Comment $index'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 10; i++) {
+        await tester.sendEventToBinding(
+          PointerScrollEvent(
+            position: const Offset(100, 200),
+            scrollDelta: const Offset(0, 80),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      await tester.pumpAndSettle();
+      expect(turns, 1);
+      expect(pages.page, closeTo(1, .001));
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: const Offset(750, 200),
+          scrollDelta: const Offset(0, 100),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(comments.offset, greaterThan(0));
+      expect(turns, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'desktop trackpad follows the page and settles on the next video',
+    (tester) async {
+      final pages = PageController();
+      addTearDown(pages.dispose);
+      final settled = <int>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FeedPager(
+            controller: pages,
+            desktop: true,
+            itemCount: 3,
+            onSettled: settled.add,
+            itemBuilder: (_, index) =>
+                ColoredBox(color: Colors.black, child: Text('Video $index')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.trackpad,
+      );
+      await gesture.panZoomStart(const Offset(200, 500));
+      await gesture.panZoomUpdate(
+        const Offset(200, 500),
+        pan: const Offset(0, -420),
+      );
+      await tester.pump();
+      expect(pages.page, greaterThan(.5));
+      expect(settled, isEmpty);
+      await gesture.panZoomEnd();
+      await tester.pumpAndSettle();
+      expect(settled, [1]);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('small window resize retains the current page and one player', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1440, 900);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    _PlayerProbe.mounts = 0;
+    _PlayerProbe.disposals = 0;
+    final pages = PageController(initialPage: 1);
+    addTearDown(pages.dispose);
+    var small = false;
+    late StateSetter update;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (_, setState) {
+            update = setState;
+            return FeedDesktopFrame(
+              enabled: !small,
+              child: FeedPager(
+                controller: pages,
+                itemCount: 3,
+                onSettled: (_) {},
+                itemBuilder: (_, index) => index == 1
+                    ? const _PlayerProbe(key: ValueKey('current-player'))
+                    : const SizedBox.expand(),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSize(find.byKey(const ValueKey('current-player'))).width,
+      1100,
+    );
+    for (final size in [
+      const Size(280, 498),
+      const Size(500, 280),
+      const Size(1440, 900),
+    ]) {
+      tester.view.physicalSize = size;
+      update(() => small = size.width < 1100);
+      await tester.pumpAndSettle();
+      expect(pages.page, closeTo(1, .001));
+      expect(_PlayerProbe.mounts, 1);
+      expect(_PlayerProbe.disposals, 0);
+      expect(tester.takeException(), isNull);
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(_PlayerProbe.disposals, 1);
   });
 
   testWidgets('detail actions have room for large text at 360dp', (

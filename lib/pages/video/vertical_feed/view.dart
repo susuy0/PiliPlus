@@ -1,3 +1,6 @@
+import 'package:PiliPlus/pages/video/vertical_feed/desktop.dart';
+import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/common/design_tokens.dart';
@@ -59,6 +62,17 @@ class VerticalVideoFeed extends StatefulWidget {
 class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     with WidgetsBindingObserver {
   final _pages = PageController();
+  final _wheelGate = FeedWheelGate();
+  bool _pipBusy = false;
+  bool _pipWasFullscreen = false;
+  ({bool comments, bool expanded, bool title})? _pipPanels;
+  bool get _desktopPip =>
+      PlatformUtils.isDesktop && widget.playerController.isDesktopPip;
+  bool get _systemPip => widget.isPipMode && !PlatformUtils.isDesktop;
+  bool get _canNavigate =>
+      !_switching &&
+      (_desktopPip || (!_commentsOpen && !_titleExpanded)) &&
+      _seekSeconds == null;
   late final _feed = VerticalFeedController<StoryVideoItem>(
     seed: widget.seed,
     loadPage: widget.loadPage,
@@ -164,6 +178,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     widget.playerController.videoFit.value = _originalFit;
     widget.playerController.removeStatusLister(_onPlayerStatus);
     _feed.dispose();
+    _wheelGate.dispose();
     _pages.dispose();
     super.dispose();
   }
@@ -261,6 +276,188 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     });
   }
 
+  void _turn(int direction) {
+    if (!_canNavigate ||
+        !_pages.hasClients ||
+        _pages.position.isScrollingNotifier.value)
+      return;
+    final index = ((_pages.page ?? _feed.index.toDouble()).round() + direction)
+        .clamp(0, _feed.items.length);
+    _pages.animateToPage(
+      index,
+      duration: AppDesign.motion(context, 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _togglePip() async {
+    if (_pipBusy ||
+        _switching ||
+        widget.playerController.videoPlayerController == null)
+      return;
+    _pipBusy = true;
+    final player = widget.playerController;
+    try {
+      if (player.isDesktopPip) {
+        await player.exitDesktopPip();
+        if (!mounted) return;
+        final panels = _pipPanels;
+        setState(() {
+          _commentsOpen = panels?.comments ?? false;
+          _commentsExpanded = panels?.expanded ?? false;
+          _titleExpanded = panels?.title ?? false;
+          _pipPanels = null;
+        });
+        if (_pipWasFullscreen) await player.triggerFullScreen();
+      } else {
+        _pipWasFullscreen = player.isFullScreen.value;
+        _pipPanels = (
+          comments: _commentsOpen,
+          expanded: _commentsExpanded,
+          title: _titleExpanded,
+        );
+        setState(() {
+          _commentsOpen = false;
+          _commentsExpanded = false;
+          _titleExpanded = false;
+        });
+        _syncPanelPlayback();
+        if (player.isFullScreen.value)
+          await player.triggerFullScreen(status: false);
+        await player.enterDesktopPip();
+        if (mounted) setState(() {});
+      }
+      _syncPanelPlayback();
+    } finally {
+      _pipBusy = false;
+    }
+  }
+
+  Future<void> _openComments() async {
+    if (_desktopPip) {
+      if (_pipBusy) return;
+      await _togglePip();
+      if (!mounted || _desktopPip) return;
+    }
+    if (widget.commentsBuilder == null) return;
+    setState(() {
+      _commentsOpen = true;
+      _titleExpanded = false;
+    });
+    _syncPanelPlayback();
+  }
+
+  void _seekDesktop(int seconds) {
+    final player = widget.playerController;
+    final state = player.videoPlayerController?.state;
+    if (state == null) return;
+    player.seekTo(
+      Duration(
+        milliseconds: (state.position.inMilliseconds + seconds * 1000)
+            .clamp(0, state.duration.inMilliseconds)
+            .toInt(),
+      ),
+      isSeek: false,
+    );
+  }
+
+  void _desktopCommand(FeedCommand command) {
+    final player = widget.playerController;
+    final ready =
+        !_switching && !_playbackError && _feed.index < _feed.items.length;
+    switch (command) {
+      case FeedCommand.previous:
+        _turn(-1);
+      case FeedCommand.next:
+        _turn(1);
+      case FeedCommand.playPause:
+        if (ready && player.videoPlayerController != null)
+          player.onDoubleTapCenter();
+      case FeedCommand.backward:
+        if (ready) _seekDesktop(-10);
+      case FeedCommand.forward:
+        if (ready) _seekDesktop(10);
+      case FeedCommand.volumeUp:
+        player.setVolume((player.volume.value + .1).clamp(0, player.maxVolume));
+      case FeedCommand.volumeDown:
+        player.setVolume((player.volume.value - .1).clamp(0, player.maxVolume));
+      case FeedCommand.mute:
+        if (player.videoPlayerController != null) {
+          player.isMuted = !player.isMuted;
+          player.videoPlayerController!.setVolume(
+            player.isMuted ? 0 : player.volume.value * 100,
+          );
+        }
+      case FeedCommand.fullscreen:
+        if (_desktopPip) {
+          _pipWasFullscreen = true;
+          _togglePip();
+        } else {
+          player.triggerFullScreen(status: !player.isFullScreen.value);
+        }
+      case FeedCommand.pip:
+        _togglePip();
+      case FeedCommand.comments:
+        if (ready) {
+          if (_commentsOpen)
+            _closeComments();
+          else
+            _openComments();
+        }
+      case FeedCommand.like:
+        if (ready)
+          widget.introController.handleAction(
+            widget.introController.actionLikeVideo,
+          );
+      case FeedCommand.favorite:
+        if (ready)
+          widget.introController.handleAction(
+            () => widget.introController.actionFavVideo(isQuick: true),
+          );
+      case FeedCommand.more:
+        if (ready) widget.onMore();
+      case FeedCommand.details:
+        widget.onDetails();
+      case FeedCommand.help:
+        _showDesktopHelp();
+      case FeedCommand.back:
+        if (_desktopPip)
+          _togglePip();
+        else if (!_commentsOpen && !_titleExpanded && player.isFullScreen.value)
+          player.triggerFullScreen(status: false);
+        else
+          _back();
+    }
+  }
+
+  void _showDesktopHelp() => showDialog<void>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('连续观看快捷键'),
+      content: const SingleChildScrollView(
+        child: Text(
+          '↑ / ↓ 或 PageUp / PageDown：上一条 / 下一条\n滚轮：切换视频；触控板：跟手翻页\n空格：播放 / 暂停\n← / →：后退 / 快进 10 秒\nShift + ↑ / ↓：音量加 / 减\nM：静音    F：全屏    P：小窗\nC：评论    L：点赞    E：收藏\nO：更多    V：视频详情    H：快捷键\nEsc：收起面板、还原窗口或退出\n输入文字时不触发上述快捷键',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
+
+  Widget _desktopFrame(BuildContext context) {
+    final feed = _buildFeed(context);
+    return FeedDesktopInput(
+      keyboardEnabled: widget.playerController.keyboardControl,
+      navigationEnabled: _canNavigate,
+      onCommand: _desktopCommand,
+      child: FeedDesktopFrame(enabled: !_desktopPip, child: feed),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: false,
@@ -271,7 +468,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       fit: StackFit.expand,
       children: [
         Offstage(
-          offstage: widget.isPipMode,
+          offstage: _systemPip,
           child: Theme(
             data: ThemeUtils.darkTheme.copyWith(
               colorScheme: ThemeUtils.darkTheme.colorScheme.copyWith(
@@ -281,10 +478,12 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
               ),
               scaffoldBackgroundColor: AppDesign.playerSheet,
             ),
-            child: _buildFeed(context),
+            child: PlatformUtils.isDesktop
+                ? _desktopFrame(context)
+                : _buildFeed(context),
           ),
         ),
-        if (widget.isPipMode) widget.playerBuilder(context),
+        if (_systemPip) widget.playerBuilder(context),
       ],
     ),
   );
@@ -298,12 +497,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           : null,
       sheetHeader: _commentHeader(),
       video: FeedPager(
+        desktop: PlatformUtils.isDesktop,
         controller: _pages,
-        enabled:
-            !_switching &&
-            !_commentsOpen &&
-            _seekSeconds == null &&
-            !_titleExpanded,
+        enabled: _canNavigate,
         itemCount: _feed.items.length + 1,
         onSettled: _onPageSettled,
         onDragStart: _rememberCurrent,
@@ -324,7 +520,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           }
           final item = _feed.items[index];
           final active = index == _feed.index;
-          return FeedPage(
+          final page = FeedPage(
             key: ValueKey(item.aid),
             content: Stack(
               fit: StackFit.expand,
@@ -339,7 +535,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   ),
                 ),
                 if (active &&
-                    !widget.isPipMode &&
+                    !_systemPip &&
                     !_switching &&
                     !_playbackError &&
                     item.aid == _playingAid)
@@ -401,54 +597,177 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                     ),
                   ),
           );
+          return PlatformUtils.isDesktop
+              ? FeedWheelRegion(
+                  gate: _wheelGate,
+                  enabled: _canNavigate,
+                  onTurn: _turn,
+                  child: page,
+                )
+              : page;
         },
       ),
       controls: const SizedBox.shrink(),
     ),
   );
 
-  Widget _pageControls(StoryVideoItem item, bool selected, bool ready) => Stack(
+  Widget _pageControls(StoryVideoItem item, bool selected, bool ready) =>
+      _desktopPip
+      ? _pipControls(item)
+      : Stack(
+          children: [
+            _overlay(item, ready),
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 8,
+              left: 8,
+              child: _topButton('返回', Icons.arrow_back_rounded, _back),
+            ),
+            if (PlatformUtils.isDesktop || widget.onPip != null)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + 8,
+                right: 8,
+                child: _topButton(
+                  '小窗播放',
+                  Icons.picture_in_picture_outlined,
+                  PlatformUtils.isDesktop ? _togglePip : widget.onPip!,
+                ),
+              ),
+            if (PlatformUtils.isDesktop)
+              Positioned(
+                top: 8,
+                left: 64,
+                right: 64,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _topButton(
+                      '上一条 · ↑',
+                      Icons.keyboard_arrow_up,
+                      () => _turn(-1),
+                    ),
+                    _topButton(
+                      '下一条 · ↓',
+                      Icons.keyboard_arrow_down,
+                      () => _turn(1),
+                    ),
+                    _topButton(
+                      '全屏 · F',
+                      Icons.fullscreen,
+                      () => _desktopCommand(FeedCommand.fullscreen),
+                    ),
+                    _topButton(
+                      '快捷键 · H',
+                      Icons.keyboard_outlined,
+                      _showDesktopHelp,
+                    ),
+                  ],
+                ),
+              ),
+            if (selected)
+              Obx(
+                () =>
+                    widget.playerController.videoFit.value == VideoFitType.cover
+                    ? Positioned(
+                        top: MediaQuery.paddingOf(context).top + 8,
+                        left: 64,
+                        right: 64,
+                        child: Center(
+                          child: TextButton.icon(
+                            style: TextButton.styleFrom(
+                              backgroundColor: Colors.black54,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () =>
+                                widget.playerController.videoFit.value =
+                                    VideoFitType.contain,
+                            icon: const Icon(Icons.fit_screen, size: 16),
+                            label: const Text('已裁剪填充 · 还原'),
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+          ],
+        );
+
+  Widget _pipControls(StoryVideoItem item) => Stack(
     children: [
-      _overlay(item, ready),
       Positioned(
-        top: MediaQuery.paddingOf(context).top + 8,
-        left: 8,
-        child: _topButton('返回', Icons.arrow_back_rounded, _back),
-      ),
-      if (widget.onPip != null)
-        Positioned(
-          top: MediaQuery.paddingOf(context).top + 8,
-          right: 8,
-          child: _topButton(
-            '小窗播放',
-            Icons.picture_in_picture_outlined,
-            widget.onPip!,
-          ),
-        ),
-      if (selected)
-        Obx(
-          () => widget.playerController.videoFit.value == VideoFitType.cover
-              ? Positioned(
-                  top: MediaQuery.paddingOf(context).top + 8,
-                  left: 64,
-                  right: 64,
-                  child: Center(
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.black54,
-                        foregroundColor: Colors.white,
+        top: 0,
+        left: 0,
+        right: 0,
+        child: ColoredBox(
+          color: Colors.black54,
+          child: Row(
+            children: [
+              Expanded(
+                child: DragToMoveArea(
+                  child: SizedBox(
+                    height: 36,
+                    child: Center(
+                      child: Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
                       ),
-                      onPressed: () => widget.playerController.videoFit.value =
-                          VideoFitType.contain,
-                      icon: const Icon(Icons.fit_screen, size: 16),
-                      label: const Text('已裁剪填充 · 还原'),
                     ),
                   ),
-                )
-              : const SizedBox.shrink(),
+                ),
+              ),
+              Obx(
+                () => _pipButton(
+                  widget.playerController.isAlwaysOnTop.value ? '取消置顶' : '窗口置顶',
+                  Icons.push_pin_outlined,
+                  () => widget.playerController.setAlwaysOnTop(
+                    !widget.playerController.isAlwaysOnTop.value,
+                  ),
+                ),
+              ),
+              _pipButton('还原窗口 · P / Esc', Icons.open_in_full, _togglePip),
+            ],
+          ),
         ),
+      ),
+      Positioned(
+        bottom: 0,
+        left: 0,
+        right: 0,
+        child: ColoredBox(
+          color: Colors.black54,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _pipButton('上一条 · ↑', Icons.skip_previous, () => _turn(-1)),
+              _pipButton(
+                _paused ? '播放 · 空格' : '暂停 · 空格',
+                _paused ? Icons.play_arrow : Icons.pause,
+                () => _desktopCommand(FeedCommand.playPause),
+              ),
+              _pipButton('下一条 · ↓', Icons.skip_next, () => _turn(1)),
+              _pipButton(
+                '静音 · M',
+                Icons.volume_off_outlined,
+                () => _desktopCommand(FeedCommand.mute),
+              ),
+            ],
+          ),
+        ),
+      ),
     ],
   );
+
+  Widget _pipButton(String tooltip, IconData icon, VoidCallback action) =>
+      IconButton(
+        tooltip: tooltip,
+        onPressed: action,
+        icon: Icon(icon, color: Colors.white, size: 20),
+        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+        padding: EdgeInsets.zero,
+      );
 
   Widget _topButton(String label, IconData icon, VoidCallback callback) =>
       IconButton(
@@ -659,12 +978,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   _action(
                     Icons.chat_bubble_outline_rounded,
                     NumUtils.numFormat(stat?.reply),
-                    ready
-                        ? () => setState(() {
-                            _commentsOpen = true;
-                            _titleExpanded = false;
-                          })
-                        : null,
+                    ready ? _openComments : null,
                     semantics: '评论',
                   ),
                 _action(
@@ -891,5 +1205,6 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     onStartTriple: onStartTriple,
     onCancelTriple: onCancelTriple,
     tripleAnimation: tripleAnimation,
+    compact: PlatformUtils.isDesktop && MediaQuery.sizeOf(context).height < 640,
   );
 }

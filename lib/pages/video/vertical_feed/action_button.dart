@@ -13,6 +13,7 @@ class FeedActionButton extends StatelessWidget {
     this.onStartTriple,
     this.onCancelTriple,
     this.tripleAnimation,
+    this.compact = false,
   });
   final IconData icon;
   final String label;
@@ -23,6 +24,7 @@ class FeedActionButton extends StatelessWidget {
   final VoidCallback? onStartTriple;
   final void Function([bool])? onCancelTriple;
   final Animation<double>? tripleAnimation;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -37,12 +39,16 @@ class FeedActionButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(28),
       child: SizedBox(
         width: MediaQuery.textScalerOf(context).scale(12) > 15 ? 64 : 56,
-        height: 64,
+        height: compact
+            ? (32 + MediaQuery.textScalerOf(context).scale(11) * 1.33)
+                  .clamp(48, 64)
+                  .toDouble()
+            : 64,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SizedBox.square(
-              dimension: 32,
+              dimension: compact ? 28 : 32,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -57,7 +63,7 @@ class FeedActionButton extends StatelessWidget {
                     ),
                   Icon(
                     icon,
-                    size: 30,
+                    size: compact ? 24 : 30,
                     color: color,
                     shadows: const [
                       Shadow(color: Colors.black54, blurRadius: 4),
@@ -70,9 +76,9 @@ class FeedActionButton extends StatelessWidget {
             Text(
               label,
               maxLines: 1,
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.white,
-                fontSize: 12,
+                fontSize: compact ? 11 : 12,
                 height: 1.33,
                 fontWeight: FontWeight.w600,
                 fontFeatures: [FontFeature.tabularFigures()],

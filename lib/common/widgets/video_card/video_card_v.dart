@@ -62,6 +62,9 @@ class VideoCardV extends StatelessWidget {
             cid: cid,
             cover: videoItem.cover,
             title: videoItem.title,
+            extraArguments: videoItem is StoryVideoItem
+                ? const {'storyFeed': true}
+                : null,
             isVertical: isVertical,
             dimension: dimension,
           );
