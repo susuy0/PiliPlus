@@ -25,6 +25,19 @@
 - Story 不感兴趣理由菜单和断网 / 恢复提示胶囊没有新增。推荐失败与播放失败仍可重试、跳过或返回详情。
 - 进度条沿用原生 Slider；没有新增纵向偏移 32dp 取消拖动规则。
 
+## 翻页交互修正
+
+- 视频、作者、标题、操作栏、进度条和顶部按钮随同一页面整体滑入、滑出。
+- 松手吸附停稳后才切换播放；跨过中线再拖回不换片。
+- 相邻页提前构建封面与信息，播放组件以 180ms 淡入衔接封面；遵循系统减少动画设置。
+- 离开页的互动状态与进度随观看队列缓存和清理。
+
+## macOS / iOS 打包
+
+GitHub Actions 选择 `Build for Mac` 或 `Build for iOS` → `Run workflow` → 分支 `vertical-feed`。成功后在该次运行的 Artifacts 下载 `macOS-release`（DMG）或 `iOS-release`（IPA）。项目已有的流程负责 Flutter 安装及必要补丁，无需在本机搭建开发环境。
+
+iOS 当前流程使用 `--no-codesign` 编译并封装 IPA，未配 Apple 分发签名。可用已安装的、兼容系统版本的 TrollStore 安装，或自行重签后安装；TestFlight / App Store 需要开发者分发签名。macOS 当前流程没有 Developer ID 签名与公证。
+
 ## 验证
 
 - `dart tool/check_vertical_feed.dart`：七项分页 / 并发 / 去重 / 错误 / 生命周期 / 长时间观看检查。

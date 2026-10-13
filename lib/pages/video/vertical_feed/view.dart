@@ -1,3 +1,5 @@
+import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
+import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/common/design_tokens.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
@@ -66,6 +68,18 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     },
   );
   late int _playingAid = widget.seed.aid!;
+  final _presentations =
+      <
+        int,
+        ({
+          VideoDetailData detail,
+          bool liked,
+          bool favorited,
+          bool followed,
+          int duration,
+          int position,
+        })
+      >{};
   bool _switching = false;
   bool _playbackError = false;
   double? _seekSeconds;
@@ -154,8 +168,31 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     super.dispose();
   }
 
+  void _rememberCurrent() {
+    if (_feed.index >= _feed.items.length) return;
+    final item = _feed.items[_feed.index];
+    final intro = widget.introController;
+    final detail = intro.videoDetail.value;
+    if (detail.bvid != item.bvid) return;
+    _presentations[item.aid!] = (
+      detail: detail,
+      liked: intro.hasLike.value,
+      favorited: intro.hasFav.value,
+      followed: const {
+        -10,
+        1,
+        2,
+        4,
+        6,
+      }.contains(intro.followStatus.value.attribute),
+      duration: widget.playerController.duration.value,
+      position: widget.playerController.position.value,
+    );
+  }
+
   Future<void> _activate(int index) async {
     if (!mounted || _switching || index >= _feed.items.length) return;
+    _rememberCurrent();
     final item = _feed.items[index];
     setState(() {
       _feed.index = index;
@@ -190,10 +227,11 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     }
   }
 
-  void _onPageChanged(int index) {
+  void _onPageSettled(int index) {
     if (_switching) return;
     if (index == _feed.index && !_playbackError) return;
     if (index == _feed.items.length) {
+      _rememberCurrent();
       setState(() {
         _feed.index = index;
         _playbackError = false;
@@ -203,13 +241,6 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     } else {
       _activate(index);
     }
-  }
-
-  bool _onScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollEndNotification && !_switching) {
-      _trimHistoryWhenIdle();
-    }
-    return false;
   }
 
   void _trimHistoryWhenIdle() {
@@ -222,6 +253,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       }
       final removed = _feed.trimHistory();
       if (removed > 0) {
+        final retained = _feed.items.map((item) => item.aid).toSet();
+        _presentations.removeWhere((aid, _) => !retained.contains(aid));
         setState(() {});
         _pages.jumpToPage(_feed.index);
       }
@@ -264,25 +297,36 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           ? MiniScaffold(body: Builder(builder: widget.commentsBuilder!))
           : null,
       sheetHeader: _commentHeader(),
-      video: NotificationListener<ScrollNotification>(
-        onNotification: _onScrollNotification,
-        child: PageView.builder(
-          controller: _pages,
-          scrollDirection: Axis.vertical,
-          physics:
-              _switching ||
-                  _commentsOpen ||
-                  _seekSeconds != null ||
-                  _titleExpanded
-              ? const NeverScrollableScrollPhysics()
-              : const ClampingScrollPhysics(),
-          itemCount: _feed.items.length + 1,
-          onPageChanged: _onPageChanged,
-          itemBuilder: (context, index) {
-            if (index == _feed.items.length) return _tail();
-            final item = _feed.items[index];
-            final active = index == _feed.index;
-            return Stack(
+      video: FeedPager(
+        controller: _pages,
+        enabled:
+            !_switching &&
+            !_commentsOpen &&
+            _seekSeconds == null &&
+            !_titleExpanded,
+        itemCount: _feed.items.length + 1,
+        onSettled: _onPageSettled,
+        onDragStart: _rememberCurrent,
+        itemBuilder: (context, index) {
+          if (index == _feed.items.length) {
+            return FeedPage(
+              content: _tail(),
+              controls: Stack(
+                children: [
+                  Positioned(
+                    top: MediaQuery.paddingOf(context).top + 8,
+                    left: 8,
+                    child: _topButton('返回', Icons.arrow_back_rounded, _back),
+                  ),
+                ],
+              ),
+            );
+          }
+          final item = _feed.items[index];
+          final active = index == _feed.index;
+          return FeedPage(
+            key: ValueKey(item.aid),
+            content: Stack(
               fit: StackFit.expand,
               children: [
                 LayoutBuilder(
@@ -299,7 +343,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                     !_switching &&
                     !_playbackError &&
                     item.aid == _playingAid)
-                  widget.playerBuilder(context),
+                  FeedPlayerReveal(child: widget.playerBuilder(context)),
                 if (active && _paused && !_switching && !_playbackError)
                   const Center(
                     child: IgnorePointer(
@@ -345,54 +389,65 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                     ),
                   ),
               ],
-            );
-          },
-        ),
-      ),
-      controls: Stack(
-        children: [
-          if (_feed.index < _feed.items.length)
-            _overlay(_feed.items[_feed.index], !_switching && !_playbackError),
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 8,
-            left: 8,
-            child: _topButton('返回', Icons.arrow_back_rounded, _back),
-          ),
-          if (widget.onPip != null)
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 8,
-              right: 8,
-              child: _topButton(
-                '小窗播放',
-                Icons.picture_in_picture_outlined,
-                widget.onPip!,
-              ),
             ),
-          Obx(
-            () => widget.playerController.videoFit.value == VideoFitType.cover
-                ? Positioned(
-                    top: MediaQuery.paddingOf(context).top + 8,
-                    left: 64,
-                    right: 64,
-                    child: Center(
-                      child: TextButton.icon(
-                        style: TextButton.styleFrom(
-                          backgroundColor: Colors.black54,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: () =>
-                            widget.playerController.videoFit.value =
-                                VideoFitType.contain,
-                        icon: const Icon(Icons.fit_screen, size: 16),
-                        label: const Text('已裁剪填充 · 还原'),
-                      ),
+            controls: _commentsOpen
+                ? null
+                : IgnorePointer(
+                    ignoring: !active,
+                    child: _pageControls(
+                      item,
+                      active,
+                      active && !_switching && !_playbackError,
                     ),
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
+                  ),
+          );
+        },
       ),
+      controls: const SizedBox.shrink(),
     ),
+  );
+
+  Widget _pageControls(StoryVideoItem item, bool selected, bool ready) => Stack(
+    children: [
+      _overlay(item, ready),
+      Positioned(
+        top: MediaQuery.paddingOf(context).top + 8,
+        left: 8,
+        child: _topButton('返回', Icons.arrow_back_rounded, _back),
+      ),
+      if (widget.onPip != null)
+        Positioned(
+          top: MediaQuery.paddingOf(context).top + 8,
+          right: 8,
+          child: _topButton(
+            '小窗播放',
+            Icons.picture_in_picture_outlined,
+            widget.onPip!,
+          ),
+        ),
+      if (selected)
+        Obx(
+          () => widget.playerController.videoFit.value == VideoFitType.cover
+              ? Positioned(
+                  top: MediaQuery.paddingOf(context).top + 8,
+                  left: 64,
+                  right: 64,
+                  child: Center(
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.black54,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () => widget.playerController.videoFit.value =
+                          VideoFitType.contain,
+                      icon: const Icon(Icons.fit_screen, size: 16),
+                      label: const Text('已裁剪填充 · 还原'),
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+    ],
   );
 
   Widget _topButton(String label, IconData icon, VoidCallback callback) =>
@@ -526,20 +581,22 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
 
   Widget _overlay(StoryVideoItem item, bool active) => Obx(() {
     final intro = widget.introController;
-    final detail = intro.videoDetail.value;
-    final ready = active && detail.bvid == item.bvid;
-    final owner = ready ? detail.owner : item.owner;
-    final face = ready
-        ? detail.owner?.face
-        : (item.owner is Owner ? (item.owner as Owner).face : null);
-    final title = ready ? detail.title ?? item.title : item.title;
-    final stat = ready ? detail.stat : null;
-    final liked = intro.hasLike.value && ready;
-    final favorited = intro.hasFav.value && ready;
+    final liveDetail = intro.videoDetail.value;
+    final saved = _presentations[item.aid];
+    final detail = liveDetail.bvid == item.bvid ? liveDetail : saved?.detail;
+    final ready = active && liveDetail.bvid == item.bvid;
+    final owner = detail?.owner ?? item.owner;
+    final face =
+        detail?.owner?.face ??
+        (item.owner is Owner ? (item.owner as Owner).face : null);
+    final title = detail?.title ?? item.title;
+    final stat = detail?.stat;
+    final liked = ready ? intro.hasLike.value : saved?.liked ?? false;
+    final favorited = ready ? intro.hasFav.value : saved?.favorited ?? false;
     final followed = ready
-        ? const {-10, 2, 6}.contains(intro.followStatus.value.attribute)
-        : item.isFollowed;
-    final seeking = _seekSeconds != null;
+        ? const {-10, 1, 2, 4, 6}.contains(intro.followStatus.value.attribute)
+        : saved?.followed ?? item.isFollowed;
+    final seeking = active && _seekSeconds != null;
     final safe = MediaQuery.paddingOf(context).bottom;
     return Stack(
       children: [
@@ -647,13 +704,13 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (owner?.name?.isNotEmpty == true)
+                if (owner.name?.isNotEmpty == true)
                   Row(
                     children: [
                       if (face?.isNotEmpty == true) ...[
                         InkWell(
                           onTap: ready
-                              ? () => Get.toNamed('/member?mid=${owner!.mid}')
+                              ? () => Get.toNamed('/member?mid=${owner.mid}')
                               : null,
                           child: NetworkImgLayer(
                             src: face,
@@ -667,10 +724,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                       Expanded(
                         child: InkWell(
                           onTap: ready
-                              ? () => Get.toNamed('/member?mid=${owner!.mid}')
+                              ? () => Get.toNamed('/member?mid=${owner.mid}')
                               : null,
                           child: Text(
-                            owner!.name!,
+                            owner.name!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -707,7 +764,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                 const SizedBox(height: 8),
                 GestureDetector(
                   onTap: () => setState(() => _titleExpanded = !_titleExpanded),
-                  child: _titleExpanded
+                  child: active && _titleExpanded
                       ? ConstrainedBox(
                           constraints: const BoxConstraints(maxHeight: 180),
                           child: SingleChildScrollView(
@@ -760,51 +817,56 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
               ),
             ),
           ),
-        if (active)
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: safe,
-            child: Obx(() {
-              final total = widget.playerController.duration.value;
-              final position = widget.playerController.position.value;
-              return SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: _paused || seeking ? 4 : 2,
-                  thumbShape: RoundSliderThumbShape(
-                    enabledThumbRadius: seeking ? 6 : 0,
-                  ),
-                  overlayShape: const RoundSliderOverlayShape(
-                    overlayRadius: 16,
-                  ),
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: safe,
+          child: Obx(() {
+            final total = active
+                ? widget.playerController.duration.value
+                : saved?.duration ?? item.duration;
+            final position = active
+                ? widget.playerController.position.value
+                : saved?.position ?? 0;
+            return SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: _paused || seeking ? 4 : 2,
+                thumbShape: RoundSliderThumbShape(
+                  enabledThumbRadius: seeking ? 6 : 0,
                 ),
-                child: SizedBox(
-                  height: 48,
-                  child: Slider(
-                    min: 0,
-                    max: total > 0 ? total.toDouble() : 1,
-                    value: (_seekSeconds ?? position.toDouble())
-                        .clamp(0, total > 0 ? total : 1)
-                        .toDouble(),
-                    activeColor: Colors.white,
-                    inactiveColor: Colors.white30,
-                    onChangeStart: total > 0
-                        ? (value) => setState(() => _seekSeconds = value)
-                        : null,
-                    onChanged: total > 0
-                        ? (value) => setState(() => _seekSeconds = value)
-                        : null,
-                    onChangeEnd: (value) {
-                      widget.playerController.seekTo(
-                        Duration(seconds: value.toInt()),
-                      );
-                      setState(() => _seekSeconds = null);
-                    },
-                  ),
+                overlayShape: const RoundSliderOverlayShape(
+                  overlayRadius: 16,
                 ),
-              );
-            }),
-          ),
+              ),
+              child: SizedBox(
+                height: 48,
+                child: Slider(
+                  min: 0,
+                  max: total > 0 ? total.toDouble() : 1,
+                  value: ((active ? _seekSeconds : null) ?? position.toDouble())
+                      .clamp(0, total > 0 ? total : 1)
+                      .toDouble(),
+                  activeColor: Colors.white,
+                  inactiveColor: Colors.white30,
+                  onChangeStart: active && total > 0
+                      ? (value) => setState(() => _seekSeconds = value)
+                      : null,
+                  onChanged: active && total > 0
+                      ? (value) => setState(() => _seekSeconds = value)
+                      : null,
+                  onChangeEnd: active
+                      ? (value) {
+                          widget.playerController.seekTo(
+                            Duration(seconds: value.toInt()),
+                          );
+                          setState(() => _seekSeconds = null);
+                        }
+                      : null,
+                ),
+              ),
+            );
+          }),
+        ),
       ],
     );
   });

@@ -1,3 +1,5 @@
+import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
+
 // Native UI regression checks: player lifetime, comment docking and large text.
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -65,6 +67,116 @@ void main() {
         greaterThanOrEqualTo(4.5),
       );
     }
+  });
+
+  testWidgets(
+    'video and controls move together; cancelled turns keep the current item',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final pages = PageController();
+      addTearDown(pages.dispose);
+      final settled = <int>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FeedPager(
+              controller: pages,
+              itemCount: 3,
+              onSettled: settled.add,
+              itemBuilder: (context, index) => FeedPage(
+                content: ColoredBox(
+                  key: ValueKey('video-$index'),
+                  color: Colors.black,
+                ),
+                controls: Stack(
+                  children: [
+                    Positioned(
+                      left: 16,
+                      bottom: 70,
+                      child: Text(
+                        'Author $index',
+                        key: ValueKey('author-$index'),
+                      ),
+                    ),
+                    Positioned(
+                      right: 8,
+                      bottom: 150,
+                      child: SizedBox(
+                        key: ValueKey('actions-$index'),
+                        width: 48,
+                        height: 200,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      Offset position(String key) =>
+          tester.getTopLeft(find.byKey(ValueKey(key)));
+      final video = position('video-0');
+      final author = position('author-0');
+      final actions = position('actions-0');
+      final drag = await tester.startGesture(const Offset(180, 650));
+      await drag.moveBy(const Offset(0, -440));
+      await tester.pump();
+      final delta = position('video-0') - video;
+      expect(delta.dy, lessThan(-380));
+      expect(position('author-0') - author, delta);
+      expect(position('actions-0') - actions, delta);
+      expect(settled, isEmpty);
+      expect(
+        position('author-1').dy - position('video-1').dy,
+        closeTo(author.dy - video.dy, .1),
+      );
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(settled, [1]);
+      expect(pages.page, closeTo(1, .001));
+      settled.clear();
+      final back = await tester.startGesture(const Offset(180, 100));
+      await back.moveBy(const Offset(0, 440));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(settled, isEmpty);
+      await back.moveBy(const Offset(0, -390));
+      await tester.pump(const Duration(milliseconds: 250));
+      await back.up();
+      await tester.pumpAndSettle();
+      expect(settled, [1]);
+      expect(pages.page, closeTo(1, .001));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('video reveal fades in and respects reduced motion', (
+    tester,
+  ) async {
+    Widget page(bool reduced) => MaterialApp(
+      home: MediaQuery(
+        data: MediaQueryData(disableAnimations: reduced),
+        child: const FeedPlayerReveal(child: ColoredBox(color: Colors.blue)),
+      ),
+    );
+    await tester.pumpWidget(page(false));
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(
+      tester.widget<Opacity>(find.byType(Opacity)).opacity,
+      inExclusiveRange(0, 1),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(page(true));
+    await tester.pump();
+    expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 1);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('detail actions have room for large text at 360dp', (
