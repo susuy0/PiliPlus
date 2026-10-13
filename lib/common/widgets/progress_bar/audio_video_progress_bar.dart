@@ -313,10 +313,19 @@ class ThumbDragDetails {
 // you would cause a swipe rather than a drag when trying to move the thumb.
 class _EagerHorizontalDragGestureRecognizer
     extends HorizontalDragGestureRecognizer {
+  bool cancelled = false;
   @override
   void addAllowedPointer(PointerDownEvent event) {
+    cancelled = false;
     super.addAllowedPointer(event);
     resolve(GestureDisposition.accepted);
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    // Flutter sends accepted pointer cancellations through onEnd too.
+    if (event is PointerCancelEvent) cancelled = true;
+    super.handleEvent(event);
   }
 
   @override
@@ -408,7 +417,8 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
 
   void _onDragEnd(DragEndDetails details) {
     onDragEnd?.call();
-    onSeek?.call(_currentThumbDurationInMilliseconds());
+    if (_drag?.cancelled != true)
+      onSeek?.call(_currentThumbDurationInMilliseconds());
     _finishDrag();
   }
 
