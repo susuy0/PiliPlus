@@ -29,6 +29,7 @@ import 'package:PiliPlus/models_new/video/video_detail/ugc_season.dart';
 import 'package:PiliPlus/models_new/video/video_tag/data.dart';
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/danmaku/view.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
 import 'package:PiliPlus/pages/episode_panel/view.dart';
 import 'package:PiliPlus/pages/video/ai_conclusion/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
@@ -1316,59 +1317,71 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     required double width,
     required double height,
     bool isPipMode = false,
-  }) => popScope(
-    key: videoDetailController.videoPlayerKey,
-    canPop:
-        _verticalFeedActive.value ||
-        (!isFullScreen &&
-            !videoDetailController.plPlayerController.isDesktopPip &&
-            (videoDetailController.horizontalScreen || isPortrait)),
-    onPopInvokedWithResult: (didPop, result) {
-      if (!_verticalFeedActive.value) {
-        videoDetailController.plPlayerController.onPopInvokedWithResult(
-          didPop,
-          result,
-        );
-      }
-    },
-    child: Obx(
-      () =>
-          !videoDetailController.videoState.value ||
-              !videoDetailController.autoPlay ||
-              plPlayerController?.videoController == null
-          ? const SizedBox.shrink()
-          : PLVideoPlayer(
-              maxWidth: width,
-              maxHeight: height,
-              plPlayerController: plPlayerController!,
-              verticalFeedMode: _verticalFeedActive.value,
-              videoDetailController: videoDetailController,
-              introController: introController,
-              headerControl: HeaderControl(
-                key: videoDetailController.headerCtrKey,
-                isPortrait: isPortrait,
-                controller: videoDetailController.plPlayerController,
-                videoDetailCtr: videoDetailController,
-                heroTag: heroTag,
-              ),
-              danmuWidget: isPipMode && pipNoDanmaku
-                  ? null
-                  : Obx(
-                      () => PlDanmaku(
-                        key: ValueKey(videoDetailController.cid.value),
-                        isPipMode: isPipMode,
-                        cid: videoDetailController.cid.value,
-                        playerController: plPlayerController!,
-                        isFullScreen: plPlayerController!.isFullScreen.value,
-                        isFileSource: videoDetailController.isFileSource,
-                        size: Size(width, height),
+  }) {
+    final danmakuTop = min(
+      height,
+      _verticalFeedActive.value && !isPipMode
+          ? FeedChrome.danmakuTop(
+              context,
+              mini: videoDetailController.plPlayerController.isDesktopPip,
+            )
+          : 4.0,
+    );
+    return popScope(
+      key: videoDetailController.videoPlayerKey,
+      canPop:
+          _verticalFeedActive.value ||
+          (!isFullScreen &&
+              !videoDetailController.plPlayerController.isDesktopPip &&
+              (videoDetailController.horizontalScreen || isPortrait)),
+      onPopInvokedWithResult: (didPop, result) {
+        if (!_verticalFeedActive.value) {
+          videoDetailController.plPlayerController.onPopInvokedWithResult(
+            didPop,
+            result,
+          );
+        }
+      },
+      child: Obx(
+        () =>
+            !videoDetailController.videoState.value ||
+                !videoDetailController.autoPlay ||
+                plPlayerController?.videoController == null
+            ? const SizedBox.shrink()
+            : PLVideoPlayer(
+                maxWidth: width,
+                maxHeight: height,
+                plPlayerController: plPlayerController!,
+                verticalFeedMode: _verticalFeedActive.value,
+                danmakuTopInset: danmakuTop,
+                videoDetailController: videoDetailController,
+                introController: introController,
+                headerControl: HeaderControl(
+                  key: videoDetailController.headerCtrKey,
+                  isPortrait: isPortrait,
+                  controller: videoDetailController.plPlayerController,
+                  videoDetailCtr: videoDetailController,
+                  heroTag: heroTag,
+                ),
+                danmuWidget: (isPipMode && pipNoDanmaku) || height <= danmakuTop
+                    ? null
+                    : Obx(
+                        () => PlDanmaku(
+                          key: ValueKey(videoDetailController.cid.value),
+                          isPipMode: isPipMode,
+                          cid: videoDetailController.cid.value,
+                          playerController: plPlayerController!,
+                          isFullScreen: plPlayerController!.isFullScreen.value,
+                          isFileSource: videoDetailController.isFileSource,
+                          size: Size(width, max(0, height - danmakuTop)),
+                        ),
                       ),
-                    ),
-              showEpisodes: showEpisodes,
-              showViewPoints: showViewPoints,
-            ),
-    ),
-  );
+                showEpisodes: showEpisodes,
+                showViewPoints: showViewPoints,
+              ),
+      ),
+    );
+  }
 
   late ThemeData theme;
   ColorScheme get colorScheme => theme.colorScheme;

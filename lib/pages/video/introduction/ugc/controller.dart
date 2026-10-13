@@ -55,6 +55,8 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   final Rx<MemberCardInfoData> userStat = MemberCardInfoData().obs;
   // 关注状态 默认未关注
   late final Rx<RelationData> followStatus = Rx(RelationData());
+  int _relationRevision = 0;
+  bool _relationBusy = false;
   late final RxMap staffRelations = {}.obs;
 
   // 是否点踩
@@ -400,8 +402,10 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       return;
     }
     final requestedBvid = bvid;
+    final revision = _relationRevision;
     final res = await UserHttp.userRelation(videoDetail.owner!.mid!);
-    if (isClosed || bvid != requestedBvid) return;
+    if (isClosed || bvid != requestedBvid || revision != _relationRevision)
+      return;
     if (res case Success(:final response)) {
       if (response.special == 1) response.attribute = -10;
       followStatus.value = response;
@@ -409,7 +413,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   }
 
   // 关注/取关up
-  Future<void> actionRelationMod(BuildContext context) async {
+  Future<void> actionRelationMod(BuildContext context, {bool? isFollow}) async {
     if (!isLogin) {
       SmartDialog.showToast('账号未登录');
       return;
@@ -422,28 +426,44 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     if (mid == null) {
       return;
     }
-    int attr = followStatus.value.attribute ?? 0;
-    if (attr == 128) {
-      final res = await VideoHttp.relationMod(mid: mid, act: 6, reSrc: 11);
-      if (res.isSuccess) {
-        followStatus
-          ..value.attribute = 0
-          ..refresh();
-      }
-      return;
-    } else {
-      RequestUtils.actionRelationMod(
-        context: context,
-        mid: mid,
-        isFollow: attr != 0,
-        followStatus: followStatus.value,
-        afterMod: (attribute) {
+    if (_relationBusy) return;
+    _relationBusy = true;
+    _relationRevision++;
+    try {
+      int attr = followStatus.value.attribute ?? 0;
+      if (attr == 128) {
+        final res = await VideoHttp.relationMod(mid: mid, act: 6, reSrc: 11);
+        if (res.isSuccess &&
+            !isClosed &&
+            this.videoDetail.value.owner?.mid == mid) {
           followStatus
-            ..value.attribute = attribute
+            ..value.attribute = 0
             ..refresh();
-          Timer(const Duration(milliseconds: 500), queryFollowStatus);
-        },
-      );
+        }
+        return;
+      } else {
+        await RequestUtils.actionRelationMod(
+          context: context,
+          mid: mid,
+          isFollow: followStatus.value.attribute != null
+              ? attr != 0
+              : isFollow ?? false,
+          followStatus: followStatus.value,
+          afterMod: (attribute) {
+            if (isClosed || this.videoDetail.value.owner?.mid != mid) return;
+            _relationRevision++;
+            followStatus
+              ..value.attribute = attribute
+              ..refresh();
+            Timer(const Duration(milliseconds: 500), () {
+              if (!isClosed && this.videoDetail.value.owner?.mid == mid)
+                queryFollowStatus();
+            });
+          },
+        );
+      }
+    } finally {
+      _relationBusy = false;
     }
   }
 

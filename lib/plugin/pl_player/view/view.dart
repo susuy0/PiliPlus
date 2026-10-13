@@ -96,6 +96,7 @@ class PLVideoPlayer extends StatefulWidget {
     required this.headerControl,
     this.bottomControl,
     this.danmuWidget,
+    this.danmakuTopInset = 4,
     this.showEpisodes,
     this.showViewPoints,
     this.fill = Colors.black,
@@ -112,6 +113,7 @@ class PLVideoPlayer extends StatefulWidget {
   final Widget headerControl;
   final Widget? bottomControl;
   final Widget? danmuWidget;
+  final double danmakuTopInset;
   final void Function([
     int?,
     UgcSeason?,
@@ -1119,7 +1121,11 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   void _onTapDown(TapDownDetails details) {
     final ctr = plPlayerController.danmakuController;
     if (ctr != null) {
-      final pos = details.localPosition;
+      final pos = details.localPosition - Offset(0, widget.danmakuTopInset);
+      if (pos.dy < 0 || pos.dy > maxHeight - widget.danmakuTopInset) {
+        _removeDmAction();
+        return;
+      }
       final res = ctr.findSingleDanmaku(pos);
       if (res != null) {
         final (dy, item) = res;
@@ -1130,7 +1136,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
             return;
           }
           _suspendedDm = item..suspend = true;
-          this.dy = dy;
+          this.dy = dy + widget.danmakuTopInset;
         }
       } else {
         _suspendedDm?.suspend = false;
@@ -1331,7 +1337,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         _videoWidget,
 
         if (widget.danmuWidget case final danmaku?)
-          Positioned.fill(top: 4, child: danmaku),
+          Positioned.fill(
+            top: widget.danmakuTopInset,
+            child: ClipRect(child: danmaku),
+          ),
 
         if (!isLive)
           Positioned.fill(

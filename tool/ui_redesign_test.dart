@@ -2,6 +2,15 @@ import 'package:PiliPlus/pages/video/vertical_feed/desktop.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/cover.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/follow_button.dart';
+import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:cached_network_image_ce/cached_network_image.dart';
+import 'package:hive_ce/hive.dart';
+
+import 'dart:async';
 
 // Native UI regression checks: player lifetime, comment docking and large text.
 import 'dart:io';
@@ -181,6 +190,207 @@ void main() {
     expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 1);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'missing, loading and failed feed covers cannot flash a light surface',
+    (tester) async {
+      late Directory directory;
+      await tester.runAsync(() async {
+        directory = await Directory.systemTemp.createTemp('feed-cover-test');
+        Hive.init(directory.path);
+        GStorage.setting = await Hive.openBox('feed-cover-settings');
+      });
+      addTearDown(
+        () => tester.runAsync(() async {
+          await GStorage.setting.close();
+          await directory.delete(recursive: true);
+        }),
+      );
+      final boundary = GlobalKey();
+      for (final brightness in Brightness.values) {
+        for (final state in ['missing', 'loading', 'failed']) {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(brightness: brightness),
+              home: Center(
+                child: RepaintBoundary(
+                  key: boundary,
+                  child: SizedBox(
+                    width: 120,
+                    height: 200,
+                    child: ColoredBox(
+                      color: Colors.white,
+                      child: state == 'missing'
+                          ? const FeedCover(src: null)
+                          : Builder(
+                              builder: (context) {
+                                // Exercise the real image callbacks without starting network IO.
+                                final cover = const FeedCover(
+                                  src: 'https://example.invalid/cover.jpg',
+                                ).build(context) as ColoredBox;
+                                final layout = cover.child as LayoutBuilder;
+                                final layer = layout.builder(
+                                  context,
+                                  const BoxConstraints.tightFor(
+                                    width: 120,
+                                    height: 200,
+                                  ),
+                                ) as NetworkImgLayer;
+                                final image =
+                                    (layer.build(context) as ClipRRect).child
+                                        as CachedNetworkImage;
+                                expect(image.fadeInDuration, Duration.zero);
+                                expect(image.fadeOutDuration, Duration.zero);
+                                return state == 'loading'
+                                    ? image.placeholder!(
+                                        context,
+                                        image.imageUrl,
+                                      )
+                                    : image.errorBuilder!(
+                                        context,
+                                        StateError('cover unavailable'),
+                                        StackTrace.current,
+                                      );
+                              },
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.runAsync(() async {
+            final image =
+                await (boundary.currentContext!.findRenderObject()
+                        as RenderRepaintBoundary)
+                    .toImage(pixelRatio: 1);
+            final data = (await image.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            ))!.buffer.asUint8List();
+            for (final offset in [0, (100 * 120 + 60) * 4, data.length - 4]) {
+              expect(data.sublist(offset, offset + 4), [
+                0,
+                0,
+                0,
+                255,
+              ], reason: '$brightness / $state');
+            }
+            image.dispose();
+          });
+          expect(tester.takeException(), isNull);
+        }
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'feed danmaku clears navigation even with hidden status bars and notches',
+    (tester) async {
+      for (final safeTop in [0.0, 24.0, 59.0]) {
+        late double navigationTop;
+        late double danmakuTop;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: MediaQuery(
+              data: MediaQueryData(
+                padding: EdgeInsets.zero,
+                viewPadding: EdgeInsets.only(top: safeTop),
+              ),
+              child: Builder(
+                builder: (context) {
+                  navigationTop = FeedChrome.navigationTop(context);
+                  danmakuTop = FeedChrome.danmakuTop(context);
+                  expect(FeedChrome.danmakuTop(context, mini: true), 44);
+                  return Stack(
+                    children: [
+                      Positioned(
+                        top: navigationTop,
+                        left: 8,
+                        width: 48,
+                        height: FeedChrome.buttonExtent,
+                        child: const SizedBox(key: ValueKey('feed-navigation')),
+                      ),
+                      Positioned.fill(
+                        top: danmakuTop,
+                        child: const ClipRect(
+                          child: ColoredBox(
+                            key: ValueKey('feed-danmaku'),
+                            color: Colors.transparent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        expect(navigationTop, greaterThanOrEqualTo(safeTop));
+        expect(
+          tester.getTopLeft(find.byKey(const ValueKey('feed-danmaku'))).dy,
+          greaterThan(
+            tester
+                .getBottomLeft(find.byKey(const ValueKey('feed-navigation')))
+                .dy,
+          ),
+        );
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
+  testWidgets(
+    'follow pill handles pending requests, relation states and large text',
+    (tester) async {
+      final request = Completer<void>();
+      var calls = 0;
+      Widget button({
+        bool followed = false,
+        int? attribute,
+        double scale = 1,
+      }) => MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+          child: Center(
+            child: FeedFollowButton(
+              followed: followed,
+              attribute: attribute,
+              onPressed: () {
+                calls++;
+                return request.future;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(button());
+      expect(
+        tester.getSize(find.byType(FeedFollowButton)).height,
+        greaterThanOrEqualTo(44),
+      );
+      await tester.tap(find.byType(FeedFollowButton));
+      await tester.pump();
+      await tester.tap(find.byType(FeedFollowButton));
+      expect(calls, 1);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      request.complete();
+      await tester.pumpAndSettle();
+      for (final relation in [(2, '已关注'), (6, '互相关注'), (-10, '特别关注')]) {
+        await tester.pumpWidget(
+          button(followed: true, attribute: relation.$1, scale: 2.5),
+        );
+        expect(find.text(relation.$2), findsOneWidget);
+        expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.tap(find.byType(FeedFollowButton));
+      await tester.pumpAndSettle();
+      expect(calls, 2);
+    },
+  );
 
   testWidgets(
     'desktop keys work without swallowing text or Command shortcuts',

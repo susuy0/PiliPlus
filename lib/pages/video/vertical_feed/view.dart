@@ -1,4 +1,8 @@
 import 'package:PiliPlus/pages/video/vertical_feed/desktop.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/cover.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/follow_button.dart';
+import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
@@ -95,6 +99,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
         })
       >{};
   bool _switching = false;
+  final _relations = <int, int>{};
   bool _playbackError = false;
   double? _seekSeconds;
   bool _commentsOpen = false;
@@ -193,13 +198,15 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       detail: detail,
       liked: intro.hasLike.value,
       favorited: intro.hasFav.value,
-      followed: const {
-        -10,
-        1,
-        2,
-        4,
-        6,
-      }.contains(intro.followStatus.value.attribute),
+      followed: intro.followStatus.value.attribute == null
+          ? item.isFollowed
+          : const {
+              -10,
+              1,
+              2,
+              4,
+              6,
+            }.contains(intro.followStatus.value.attribute),
       duration: widget.playerController.duration.value,
       position: widget.playerController.position.value,
     );
@@ -270,6 +277,12 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       if (removed > 0) {
         final retained = _feed.items.map((item) => item.aid).toSet();
         _presentations.removeWhere((aid, _) => !retained.contains(aid));
+        final owners = {
+          for (final item in _feed.items) item.owner.mid,
+          for (final presentation in _presentations.values)
+            presentation.detail.owner?.mid,
+        };
+        _relations.removeWhere((mid, _) => !owners.contains(mid));
         setState(() {});
         _pages.jumpToPage(_feed.index);
       }
@@ -515,7 +528,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                 controls: Stack(
                   children: [
                     Positioned(
-                      top: MediaQuery.paddingOf(context).top + 8,
+                      top: FeedChrome.navigationTop(context),
                       left: 8,
                       child: _topButton('返回', Icons.arrow_back_rounded, _back),
                     ),
@@ -530,15 +543,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
               content: Stack(
                 fit: StackFit.expand,
                 children: [
-                  LayoutBuilder(
-                    builder: (context, box) => NetworkImgLayer(
-                      src: item.cover,
-                      width: box.maxWidth,
-                      height: box.maxHeight,
-                      fit: BoxFit.contain,
-                      borderRadius: BorderRadius.zero,
-                    ),
-                  ),
+                  FeedCover(src: item.cover),
                   if (active &&
                       !_systemPip &&
                       !_switching &&
@@ -626,13 +631,13 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           children: [
             _overlay(item, ready),
             Positioned(
-              top: MediaQuery.paddingOf(context).top + 8,
+              top: FeedChrome.navigationTop(context),
               left: 8,
               child: _topButton('返回', Icons.arrow_back_rounded, _back),
             ),
             if (PlatformUtils.isDesktop || widget.onPip != null)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 8,
+                top: FeedChrome.navigationTop(context),
                 right: 8,
                 child: _topButton(
                   '小窗播放',
@@ -642,7 +647,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
               ),
             if (PlatformUtils.isDesktop)
               Positioned(
-                top: 8,
+                top: FeedChrome.navigationTop(context),
                 left: 64,
                 right: 64,
                 child: Row(
@@ -676,7 +681,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                 () =>
                     widget.playerController.videoFit.value == VideoFitType.cover
                     ? Positioned(
-                        top: MediaQuery.paddingOf(context).top + 8,
+                        top: FeedChrome.navigationTop(context),
                         left: 64,
                         right: 64,
                         child: Center(
@@ -783,7 +788,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
         onPressed: callback,
         style: IconButton.styleFrom(
           backgroundColor: const Color(0x73000000),
-          minimumSize: const Size(48, 48),
+          minimumSize: const Size(
+            FeedChrome.buttonExtent,
+            FeedChrome.buttonExtent,
+          ),
         ),
         icon: Icon(icon, color: Colors.white, size: 24),
       );
@@ -920,9 +928,15 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     final stat = detail?.stat;
     final liked = ready ? intro.hasLike.value : saved?.liked ?? false;
     final favorited = ready ? intro.hasFav.value : saved?.favorited ?? false;
-    final followed = ready
-        ? const {-10, 1, 2, 4, 6}.contains(intro.followStatus.value.attribute)
+    final currentAttribute = ready ? intro.followStatus.value.attribute : null;
+    if (currentAttribute != null && owner.mid != null) {
+      _relations[owner.mid!] = currentAttribute;
+    }
+    final attribute = currentAttribute ?? _relations[owner.mid];
+    final followed = attribute != null
+        ? const {-10, 1, 2, 4, 6}.contains(attribute)
         : saved?.followed ?? item.isFollowed;
+    final self = intro.isLogin && owner.mid == Accounts.main.mid;
     final seeking = active && _seekSeconds != null;
     final safe = MediaQuery.paddingOf(context).bottom;
     return Stack(
@@ -948,7 +962,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           left: 0,
           right: 0,
           top: 0,
-          height: MediaQuery.paddingOf(context).top + 104,
+          height: FeedChrome.safeTop(context) + 104,
           child: const IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -1043,7 +1057,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                         ),
                         const SizedBox(width: 8),
                       ],
-                      Expanded(
+                      Flexible(
                         child: InkWell(
                           onTap: ready
                               ? () => Get.toNamed('/member?mid=${owner.mid}')
@@ -1061,26 +1075,20 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: ready
-                            ? () => intro.actionRelationMod(context)
-                            : null,
-                        style: TextButton.styleFrom(
-                          foregroundColor: followed
-                              ? Colors.white
-                              : AppDesign.playerPrimary,
-                          backgroundColor: followed
-                              ? Colors.white12
-                              : const Color(0xFF5E1633),
-                          minimumSize: const Size(48, 48),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                      if (!self) ...[
+                        const SizedBox(width: 8),
+                        FeedFollowButton(
+                          key: ValueKey(owner.mid),
+                          followed: followed,
+                          attribute: attribute,
+                          onPressed: ready
+                              ? () => intro.actionRelationMod(
+                                  context,
+                                  isFollow: followed,
+                                )
+                              : null,
                         ),
-                        child: Text(
-                          followed ? '已关注' : '+ 关注',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
+                      ],
                     ],
                   ),
                 const SizedBox(height: 8),
