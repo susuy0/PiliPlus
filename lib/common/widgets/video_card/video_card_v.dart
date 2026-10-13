@@ -7,6 +7,7 @@ import 'package:PiliPlus/common/widgets/video_popup_menu.dart';
 import 'package:PiliPlus/http/search.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
+import 'package:PiliPlus/models/video/story.dart';
 import 'package:PiliPlus/models_new/video/video_detail/dimension.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
@@ -39,7 +40,8 @@ class VideoCardV extends StatelessWidget {
       case 'vertical_av':
         var bvid = videoItem.bvid ?? IdUtils.av2bv(videoItem.aid!);
         var cid = videoItem.cid;
-        bool isVertical = false;
+        bool isVertical =
+            videoItem is StoryVideoItem || videoItem.goto == 'vertical_av';
         Dimension? dimension;
         if (videoItem is RcmdVideoItemAppModel) {
           if (videoItem.uri case final uri?) {
@@ -100,7 +102,9 @@ class VideoCardV extends StatelessWidget {
               crossAxisAlignment: .start,
               children: [
                 AspectRatio(
-                  aspectRatio: Style.aspectRatio,
+                  aspectRatio: videoItem is StoryVideoItem
+                      ? Style.aspectRatio3x4
+                      : Style.aspectRatio,
                   child: LayoutBuilder(
                     builder: (context, boxConstraints) {
                       double maxWidth = boxConstraints.maxWidth;
@@ -114,6 +118,15 @@ class VideoCardV extends StatelessWidget {
                             height: maxHeight,
                             borderRadius: const .vertical(top: .circular(12)),
                           ),
+                          if (videoItem is StoryVideoItem ||
+                              videoItem.goto == 'vertical_av')
+                            const PBadge(
+                              top: 8,
+                              left: 8,
+                              text: '竖屏',
+                              size: .small,
+                              type: .gray,
+                            ),
                           if (videoItem.duration > 0)
                             PBadge(
                               bottom: 6,
@@ -136,10 +149,10 @@ class VideoCardV extends StatelessWidget {
         ),
         if (videoItem.goto == 'av' || videoItem.goto == 'vertical_av')
           Positioned(
-            right: -5,
-            bottom: -2,
-            width: 29,
-            height: 29,
+            right: 0,
+            bottom: 0,
+            width: 48,
+            height: 48,
             child: VideoPopupMenu(
               iconSize: 17,
               videoItem: videoItem,
@@ -154,7 +167,7 @@ class VideoCardV extends StatelessWidget {
     final theme = Theme.of(context);
     return Expanded(
       child: Padding(
-        padding: const .fromLTRB(6, 5, 6, 5),
+        padding: const .fromLTRB(10, 8, 10, 8),
         child: Column(
           crossAxisAlignment: .start,
           children: [
@@ -163,7 +176,11 @@ class VideoCardV extends StatelessWidget {
                 videoItem.title,
                 maxLines: 2,
                 overflow: .ellipsis,
-                style: const TextStyle(height: 1.38),
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.43,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
             videoStat(theme),
@@ -214,7 +231,8 @@ class VideoCardV extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (videoItem.goto == 'av') const SizedBox(width: 10),
+                if (videoItem.goto == 'av' || videoItem.goto == 'vertical_av')
+                  const SizedBox(width: 32),
               ],
             ),
           ],

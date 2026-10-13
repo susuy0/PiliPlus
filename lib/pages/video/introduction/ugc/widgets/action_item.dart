@@ -42,7 +42,7 @@ class ActionItem extends StatelessWidget {
         : colorScheme.primary;
     Widget child = Icon(
       selectStatus ? selectIcon!.icon! : icon.icon,
-      size: 18,
+      size: expand ? 24 : 20,
       color: selectStatus ? primary : icon.color ?? colorScheme.outline,
       semanticLabel: semanticsLabel,
     );
@@ -61,7 +61,7 @@ class ActionItem extends StatelessWidget {
         ],
       );
     } else {
-      child = SizedBox.square(dimension: 28, child: child);
+      child = SizedBox.square(dimension: expand ? 32 : 28, child: child);
     }
 
     child = Material(
@@ -77,9 +77,16 @@ class ActionItem extends StatelessWidget {
         onTapUp: _isThumbsUp ? (_) => onCancelTriple!(true) : null,
         onTapCancel: _isThumbsUp ? onCancelTriple : null,
         child: expand
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [child, _buildText(theme)],
+            ? SizedBox(
+                height: 64,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    child,
+                    const SizedBox(height: 4),
+                    _buildText(theme),
+                  ],
+                ),
               )
             : child,
       ),
@@ -96,7 +103,7 @@ class ActionItem extends StatelessWidget {
         color: selectStatus
             ? theme.colorScheme.primary
             : theme.colorScheme.outline,
-        fontSize: theme.textTheme.labelSmall!.fontSize,
+        fontSize: 12,
       ),
     );
     if (hasText) {

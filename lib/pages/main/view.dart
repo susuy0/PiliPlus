@@ -82,7 +82,8 @@ class _MainAppState extends PopScopeState<MainApp>
       }
     }
     if (!_mainController.useSideBar) {
-      _mainController.useBottomNav = MediaQuery.sizeOf(context).isPortrait;
+      final size = MediaQuery.sizeOf(context);
+      _mainController.useBottomNav = size.width < 600 && size.isPortrait;
     }
   }
 
@@ -549,6 +550,7 @@ class _MainAppState extends PopScopeState<MainApp>
     }
 
     child = Material(
+      color: _colorScheme.surface,
       child: MainLayout(
         sideBar: sideBar,
         bottomNav: bottomNav,

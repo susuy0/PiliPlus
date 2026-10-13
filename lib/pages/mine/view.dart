@@ -90,11 +90,23 @@ class _MediaPageState extends CommonPageState<MinePage>
               onRefresh: controller.onRefresh,
               child: onBuild(
                 ListView(
-                  padding: const .only(bottom: 150),
+                  padding: const .fromLTRB(16, 4, 16, 100),
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: [
-                    _buildUserInfo(theme, secondary),
-                    _buildActions(secondary),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: _buildUserInfo(theme, secondary),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: _buildActions(secondary),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     for (final tab in controller.mineTabs)
                       switch (tab) {
                         .favorite => Obx(_buildFav),
@@ -230,8 +242,8 @@ class _MediaPageState extends CommonPageState<MinePage>
 
   Widget _buildUserInfo(ThemeData theme, Color secondary) {
     final style = TextStyle(
-      fontSize: theme.textTheme.titleMedium!.fontSize,
-      fontWeight: FontWeight.bold,
+      fontSize: 22,
+      fontWeight: FontWeight.w600,
     );
     final labelStyle = theme.textTheme.labelMedium!.copyWith(
       color: theme.colorScheme.outline,
@@ -275,8 +287,8 @@ class _MediaPageState extends CommonPageState<MinePage>
                           NetworkImgLayer(
                             src: userInfo.face,
                             type: .avatar,
-                            width: 55,
-                            height: 55,
+                            width: 64,
+                            height: 64,
                           ),
                           if (isVip)
                             Positioned(
@@ -292,9 +304,9 @@ class _MediaPageState extends CommonPageState<MinePage>
                       )
                     : ClipOval(
                         child: Image.asset(
-                          width: 55,
-                          height: 55,
-                          cacheHeight: 55.cacheSize(context),
+                          width: 64,
+                          height: 64,
+                          cacheHeight: 64.cacheSize(context),
                           Assets.avatarPlaceHolder,
                           semanticLabel: "默认头像",
                         ),
@@ -546,48 +558,50 @@ class _MediaPageState extends CommonPageState<MinePage>
         );
     }
     final secondary = theme.colorScheme.secondary;
-    return Column(
-      children: [
-        Divider(
-          height: 20,
-          color: theme.colorScheme.outline.withValues(alpha: 0.1),
-        ),
-        ListTile(
-          dense: true,
-          onTap: onPushDetail,
-          title: Padding(
-            padding: const EdgeInsets.only(left: 10),
-            child: Text.rich(
-              TextSpan(
-                children: [
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            ListTile(
+              dense: true,
+              onTap: onPushDetail,
+              title: Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: Text.rich(
                   TextSpan(
-                    text: '${tab.label}  ',
-                    style: const TextStyle(fontSize: 16, fontWeight: .bold),
+                    children: [
+                      TextSpan(
+                        text: '${tab.label}  ',
+                        style: const TextStyle(fontSize: 16, fontWeight: .bold),
+                      ),
+                      if (tabCtr.count != null)
+                        TextSpan(
+                          text: '${tabCtr.count}  ',
+                          style: TextStyle(color: secondary),
+                        ),
+                      WidgetSpan(
+                        child: Icon(
+                          Icons.arrow_forward_ios,
+                          size: 18,
+                          color: secondary,
+                        ),
+                      ),
+                    ],
                   ),
-                  if (tabCtr.count != null)
-                    TextSpan(
-                      text: '${tabCtr.count}  ',
-                      style: TextStyle(color: secondary),
-                    ),
-                  WidgetSpan(
-                    child: Icon(
-                      Icons.arrow_forward_ios,
-                      size: 18,
-                      color: secondary,
-                    ),
-                  ),
-                ],
+                ),
+              ),
+              trailing: IconButton(
+                tooltip: '刷新',
+                onPressed: tabCtr.onRefresh,
+                icon: const Icon(Icons.refresh, size: 20),
               ),
             ),
-          ),
-          trailing: IconButton(
-            tooltip: '刷新',
-            onPressed: tabCtr.onRefresh,
-            icon: const Icon(Icons.refresh, size: 20),
-          ),
+            child,
+          ],
         ),
-        child,
-      ],
+      ),
     );
   }
 }

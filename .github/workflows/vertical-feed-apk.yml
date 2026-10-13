@@ -45,6 +45,24 @@ jobs:
       - name: Analyze source
         run: flutter analyze --no-pub --no-fatal-infos
 
+      - name: Check native UI layouts
+        run: flutter test --no-pub --reporter expanded tool/ui_redesign_test.dart
+
+      - name: Upload native UI previews
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: PiliPlus-native-UI-previews
+          path: build/ui-previews/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Keep development signing key across builds
+        uses: actions/cache@v5
+        with:
+          path: ~/.android/debug.keystore
+          key: piliplus-dev-signing-v1
+
       - name: Set build metadata
         shell: pwsh
         run: lib/scripts/build.ps1 android

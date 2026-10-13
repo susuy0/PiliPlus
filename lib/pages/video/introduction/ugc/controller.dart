@@ -399,7 +399,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     if (videoDetail.owner == null || videoDetail.staff?.isNotEmpty == true) {
       return;
     }
+    final requestedBvid = bvid;
     final res = await UserHttp.userRelation(videoDetail.owner!.mid!);
+    if (isClosed || bvid != requestedBvid) return;
     if (res case Success(:final response)) {
       if (response.special == 1) response.attribute = -10;
       followStatus.value = response;
@@ -504,6 +506,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         hasLike.value = false;
         hasFav.value = false;
         hasDislike.value = false;
+        followStatus.value = RelationData();
         coinNum.value = 0;
       }
       final playback = videoDetailCtr.queryVideoUrl();

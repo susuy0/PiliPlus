@@ -51,6 +51,8 @@ import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/pages/video/reply/view.dart';
 import 'package:PiliPlus/pages/video/view_point/view.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/view.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/more_sheet.dart';
+import 'package:PiliPlus/utils/ios/pip_helper.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/pages/video/widgets/intro_layout.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
@@ -65,6 +67,7 @@ import 'package:PiliPlus/services/shutdown_timer_service.dart'
     show shutdownTimerService;
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
+import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
@@ -183,44 +186,43 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   Widget _buildVerticalFeed() {
     final seed = _feedSeed!;
-    return popScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _leaveVerticalFeed(pop: true);
+    return VerticalVideoFeed(
+      seed: seed,
+      loadPage: (page) async {
+        final result = await VideoHttp.storyFeed(
+          aid: seed.aid!,
+          bvid: seed.bvid!,
+          cid: seed.cid!,
+          page: page,
+          sessionId: _storySessionId,
+        );
+        if (result case Success(:final response)) return response;
+        throw StateError(result.toString());
       },
-      child: VerticalVideoFeed(
-        seed: seed,
-        loadPage: (page) async {
-          final result = await VideoHttp.storyFeed(
-            aid: seed.aid!,
-            bvid: seed.bvid!,
-            cid: seed.cid!,
-            page: page,
-            sessionId: _storySessionId,
-          );
-          if (result case Success(:final response)) return response;
-          throw StateError(result.toString());
-        },
-        onSwitch: _switchStoryVideo,
-        playerController: videoDetailController.plPlayerController,
-        isPipMode: videoDetailController.plPlayerController.isPipMode,
-        introController: ugcIntroController,
-        playerBuilder: (context) =>
-            videoDetailController.plPlayerController.isPipMode
-            ? plPlayer(width: maxWidth, height: maxHeight, isPipMode: true)
-            : videoPlayer(width: maxWidth, height: maxHeight),
-        onExit: () => _leaveVerticalFeed(pop: true),
-        onDetails: _leaveVerticalFeed,
-        onComments: videoDetailController.showReply
-            ? () => PageUtils.showVideoBottomSheet(
-                context,
-                child: Material(
-                  color: theme.colorScheme.surface,
-                  child: videoReplyPanel(),
-                ),
-              )
-            : null,
+      onSwitch: _switchStoryVideo,
+      playerController: videoDetailController.plPlayerController,
+      isPipMode: videoDetailController.plPlayerController.isPipMode,
+      introController: ugcIntroController,
+      playerBuilder: (context) =>
+          videoDetailController.plPlayerController.isPipMode
+          ? plPlayer(width: maxWidth, height: maxHeight, isPipMode: true)
+          : videoPlayer(width: maxWidth, height: maxHeight),
+      onExit: () => _leaveVerticalFeed(pop: true),
+      onDetails: _leaveVerticalFeed,
+      commentsBuilder: videoDetailController.showReply
+          ? (_) => videoReplyPanel()
+          : null,
+      onMore: () => showFeedMore(
+        context,
+        player: videoDetailController.plPlayerController,
+        detail: videoDetailController,
+        intro: ugcIntroController,
       ),
+      onPip:
+          (Platform.isAndroid && PiliAndroidHelper.isPipAvailable) ||
+              (Platform.isIOS && IOSPipHelper.isAvailable)
+          ? () => videoDetailController.plPlayerController.enterPip()
+          : null,
     );
   }
 

@@ -140,6 +140,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   final _playerKey = GlobalKey();
   final _videoKey = GlobalKey();
+  final _storyHeart = Rxn<(Offset, bool, int)>();
+  Timer? _storyHeartTimer;
 
   final RxDouble _brightnessValue = 0.0.obs;
   final RxBool _brightnessIndicator = false.obs;
@@ -375,6 +377,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   @override
   void dispose() {
+    _storyHeartTimer?.cancel();
     removeObserverMobile(this);
     _danmakuListener?.cancel();
     _tapGestureRecognizer.dispose();
@@ -1138,7 +1141,18 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   void _onDoubleTapDown(TapDownDetails details) {
     if (widget.verticalFeedMode) {
-      if (!introController.hasLike.value) introController.actionLikeVideo();
+      final liked = introController.hasLike.value;
+      _storyHeart.value = (
+        details.localPosition,
+        !liked,
+        DateTime.now().microsecondsSinceEpoch,
+      );
+      _storyHeartTimer?.cancel();
+      _storyHeartTimer = Timer(
+        const Duration(milliseconds: 700),
+        () => _storyHeart.value = null,
+      );
+      if (!liked) introController.actionLikeVideo();
       return;
     }
     switch (details.kind) {
@@ -1536,6 +1550,40 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
           ),
         ),
 
+        if (widget.verticalFeedMode)
+          Obx(() {
+            final heart = _storyHeart.value;
+            if (heart == null) return const SizedBox.shrink();
+            return Positioned(
+              left: heart.$1.dx - 40,
+              top: heart.$1.dy - 40,
+              child: IgnorePointer(
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey(heart.$3),
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 700),
+                  builder: (context, value, _) => Opacity(
+                    opacity: 1 - value,
+                    child: Transform.translate(
+                      offset: Offset(0, -40 * value),
+                      child: Transform.scale(
+                        scale: 1 + value * .6,
+                        child: Icon(
+                          Icons.favorite_rounded,
+                          size: 80,
+                          color: heart.$2
+                              ? const Color(0xFFFF5C8A)
+                              : Colors.white70,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        // Keep real settings handlers mounted for the Story action sheet.
+        if (widget.verticalFeedMode) Offstage(child: widget.headerControl),
         // 头部、底部控制条
         if (!widget.verticalFeedMode)
           Positioned.fill(

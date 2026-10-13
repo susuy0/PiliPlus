@@ -1314,6 +1314,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// 读取fit
   var _prefFit = VideoFitType.values[Pref.cacheVideoFit];
   void _initVideoFit() {
+    if (verticalFeedMode) {
+      videoFit.value = .contain;
+      return;
+    }
     if (_prefFit == .fill && _isVertical) {
       videoFit.value = .contain;
     } else {

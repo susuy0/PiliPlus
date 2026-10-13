@@ -14,7 +14,8 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
   bool get isFullScreen => plPlayerController.isFullScreen.value;
 
   ThemeData? get theme {
-    if (plPlayerController.darkVideoPage) {
+    if (plPlayerController.darkVideoPage ||
+        plPlayerController.verticalFeedMode) {
       return ThemeUtils.darkTheme;
     }
     return null;

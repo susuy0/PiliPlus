@@ -10,6 +10,8 @@ import 'package:PiliPlus/pages/rank/controller.dart';
 import 'package:PiliPlus/pages/rank/view.dart';
 import 'package:PiliPlus/pages/rcmd/controller.dart';
 import 'package:PiliPlus/pages/rcmd/view.dart';
+import 'package:PiliPlus/pages/shorts/view.dart';
+import 'package:PiliPlus/pages/shorts/controller.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -20,6 +22,7 @@ enum HomeTabType implements EnumWithLabel {
   rank('分区'),
   bangumi('番剧'),
   cinema('影视'),
+  shorts('短视频'),
   ;
 
   @override
@@ -27,6 +30,7 @@ enum HomeTabType implements EnumWithLabel {
   const HomeTabType(this.label);
 
   ScrollOrRefreshMixin Function() get ctr => switch (this) {
+    HomeTabType.shorts => Get.find<ShortsController>,
     HomeTabType.live => Get.find<LiveController>,
     HomeTabType.rcmd => Get.find<RcmdController>,
     HomeTabType.hot => Get.find<HotController>,
@@ -36,6 +40,7 @@ enum HomeTabType implements EnumWithLabel {
   };
 
   Widget get page => switch (this) {
+    HomeTabType.shorts => const ShortsPage(),
     HomeTabType.live => const LivePage(),
     HomeTabType.rcmd => const RcmdPage(),
     HomeTabType.hot => const HotPage(),

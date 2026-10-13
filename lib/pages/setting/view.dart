@@ -170,48 +170,73 @@ class _SettingPageState extends State<SettingPage> {
   }
 
   Widget _buildList(ThemeData theme) {
-    final padding = MediaQuery.viewPaddingOf(context);
-    TextStyle titleStyle = theme.textTheme.titleMedium!;
-    TextStyle subTitleStyle = theme.textTheme.labelMedium!.copyWith(
-      color: theme.colorScheme.outline,
-    );
-    return ListView(
-      padding: EdgeInsets.only(bottom: padding.bottom + 100),
-      children: [
-        _buildSearchItem(theme),
-        ..._items
-            .take(_items.length - 1)
-            .map(
-              (item) => ListTile(
-                tileColor: _getTileColor(theme, item.type),
-                onTap: () => _toPage(item.type),
-                leading: item.icon,
-                title: Text(item.type.title, style: titleStyle),
-                subtitle: item.subtitle == null
-                    ? null
-                    : Text(item.subtitle!, style: subTitleStyle),
+    final scheme = theme.colorScheme;
+    Widget tile(_SettingsModel item) => ListTile(
+      tileColor: _getTileColor(theme, item.type),
+      onTap: () => _toPage(item.type),
+      leading: item.icon,
+      title: Text(item.type.title, style: theme.textTheme.titleSmall),
+      subtitle: item.subtitle == null
+          ? null
+          : Text(
+              item.subtitle!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
               ),
             ),
-        ListTile(
-          onTap: () => LoginPageController.switchAccountDialog(context),
-          leading: const Icon(Icons.switch_account_outlined),
-          title: Text('切换账号', style: titleStyle),
-        ),
-        Obx(
-          () => _noAccount.value
-              ? const SizedBox.shrink()
-              : ListTile(
-                  leading: const Icon(Icons.logout_outlined),
-                  onTap: () => _logoutDialog(context),
-                  title: Text('退出登录', style: titleStyle),
-                ),
-        ),
-        ListTile(
-          tileColor: _getTileColor(theme, _items.last.type),
-          onTap: () => _toPage(_items.last.type),
-          leading: _items.last.icon,
-          title: Text(_items.last.type.title, style: titleStyle),
-        ),
+      trailing: Icon(Icons.chevron_right, size: 20, color: scheme.outline),
+    );
+    Widget group(String title, List<Widget> children) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              title,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: Column(children: children),
+          ),
+        ],
+      ),
+    );
+    return ListView(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewPaddingOf(context).bottom + 40,
+      ),
+      children: [
+        _buildSearchItem(theme),
+        group('账号与隐私', [
+          ListTile(
+            onTap: () => LoginPageController.switchAccountDialog(context),
+            leading: const Icon(Icons.switch_account_outlined),
+            title: const Text('切换账号'),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+          ),
+          tile(_items[0]),
+          Obx(
+            () => _noAccount.value
+                ? const SizedBox.shrink()
+                : ListTile(
+                    leading: Icon(Icons.logout_outlined, color: scheme.error),
+                    onTap: () => _logoutDialog(context),
+                    title: const Text('退出登录'),
+                  ),
+          ),
+        ]),
+        group('推荐与内容', [tile(_items[1])]),
+        group('播放器与竖屏', [tile(_items[2]), tile(_items[3])]),
+        group('外观与布局', [tile(_items[4])]),
+        group('系统与工具', [tile(_items[5]), tile(_items[6]), tile(_items[7])]),
       ],
     );
   }
@@ -298,35 +323,31 @@ class _SettingPageState extends State<SettingPage> {
   }
 
   Widget _buildSearchItem(ThemeData theme) => Padding(
-    padding: const EdgeInsets.only(
-      left: 16,
-      right: 16,
-      bottom: 8,
-    ),
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
     child: Material(
-      color: theme.colorScheme.onInverseSurface,
-      borderRadius: const BorderRadius.all(Radius.circular(50)),
+      color: theme.colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: () => Get.toNamed('/settingsSearch'),
-        borderRadius: const BorderRadius.all(Radius.circular(50)),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  size: 18,
-                  applyTextScaling: true,
-                  Icons.search,
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: 48,
+          child: Row(
+            children: [
+              const SizedBox(width: 16),
+              Icon(Icons.search, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '搜索设置，例如画质、竖屏、主题',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-                Text(
-                  ' 搜索',
-                  style: TextStyle(height: 1),
-                  strutStyle: StrutStyle(height: 1, leading: 0),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

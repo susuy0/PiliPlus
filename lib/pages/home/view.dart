@@ -44,9 +44,9 @@ class _HomePageState extends CommonPageState<HomePage>
     Widget tabBar;
     if (_homeController.tabs.length > 1) {
       tabBar = Padding(
-        padding: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.only(top: 4, bottom: 4),
         child: SizedBox(
-          height: 42,
+          height: 48,
           width: double.infinity,
           child: TabBar(
             controller: _homeController.tabController,
@@ -55,7 +55,7 @@ class _HomePageState extends CommonPageState<HomePage>
             dividerColor: Colors.transparent,
             dividerHeight: 0,
             splashBorderRadius: Style.mdRadius,
-            tabAlignment: TabAlignment.center,
+            tabAlignment: TabAlignment.start,
             onTap: (_) {
               feedBack();
               if (!_homeController.tabController.indexIsChanging) {
@@ -101,7 +101,16 @@ class _HomePageState extends CommonPageState<HomePage>
         const SizedBox(width: 4),
         msgBadge(_mainController),
         const SizedBox(width: 8),
-        userAvatar(colorScheme: _colorScheme, mainController: _mainController),
+        SizedBox(
+          width: 48,
+          height: 48,
+          child: Center(
+            child: userAvatar(
+              colorScheme: _colorScheme,
+              mainController: _mainController,
+            ),
+          ),
+        ),
       ],
     );
     if (_homeController.hideTopBar) {
@@ -148,10 +157,10 @@ class _HomePageState extends CommonPageState<HomePage>
     const borderRadius = BorderRadius.all(Radius.circular(25));
     return Expanded(
       child: SizedBox(
-        height: 44,
+        height: 40,
         child: Material(
           borderRadius: borderRadius,
-          color: _colorScheme.onSecondaryContainer.withValues(alpha: 0.05),
+          color: _colorScheme.surfaceContainer,
           child: InkWell(
             borderRadius: borderRadius,
             splashColor: _colorScheme.primaryContainer.withValues(
@@ -178,7 +187,10 @@ class _HomePageState extends CommonPageState<HomePage>
                       _homeController.defaultSearch.value,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: _colorScheme.outline),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 ),

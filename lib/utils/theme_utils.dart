@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/design_tokens.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -35,27 +36,31 @@ abstract final class ThemeUtils {
     final fontWeight = Pref.appFontWeight;
     final fontFamily = FontUtils.fontFamily;
 
-    TextTheme? textTheme;
-    if (fontWeight != .normal) {
-      final textStyle = TextStyle(fontWeight: fontWeight);
-      textTheme = TextTheme(
-        displayLarge: textStyle,
-        displayMedium: textStyle,
-        displaySmall: textStyle,
-        headlineLarge: textStyle,
-        headlineMedium: textStyle,
-        headlineSmall: textStyle,
-        titleLarge: textStyle,
-        titleMedium: textStyle,
-        titleSmall: textStyle,
-        bodyLarge: textStyle,
-        bodyMedium: textStyle,
-        bodySmall: textStyle,
-        labelLarge: textStyle,
-        labelMedium: textStyle,
-        labelSmall: textStyle,
-      );
-    }
+    colorScheme = AppDesign.scheme(
+      colorScheme,
+      defaultAccent: !isDynamic && Pref.customColor == 0,
+      pureBlack: isDark && Pref.isPureBlackTheme,
+    );
+    TextStyle text(
+      double size,
+      double height, [
+      FontWeight weight = FontWeight.w400,
+    ]) => TextStyle(
+      fontSize: size,
+      height: height / size,
+      fontWeight: fontWeight == FontWeight.normal ? weight : fontWeight,
+    );
+    final textTheme = TextTheme(
+      titleLarge: text(18, 26, FontWeight.w600),
+      titleMedium: text(16, 24, FontWeight.w600),
+      titleSmall: text(15, 22, FontWeight.w600),
+      bodyLarge: text(15, 24),
+      bodyMedium: text(14, 22),
+      bodySmall: text(13, 20),
+      labelLarge: text(14, 20, FontWeight.w500),
+      labelMedium: text(12, 16, FontWeight.w500),
+      labelSmall: text(11, 14, FontWeight.w500),
+    );
 
     final theme = ThemeData(
       useMaterial3: true,
@@ -69,14 +74,35 @@ abstract final class ThemeUtils {
         scrolledUnderElevation: 0,
         backgroundColor: colorScheme.surface,
         titleTextStyle: TextStyle(
-          fontSize: 16,
-          fontWeight: fontWeight,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
           fontFamily: fontFamily,
           color: colorScheme.onSurface,
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        surfaceTintColor: isDark ? colorScheme.surfaceContainerHighest : null,
+        height: 64,
+        elevation: 0,
+        backgroundColor: colorScheme.surfaceContainerLowest,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: colorScheme.primaryContainer,
+        labelTextStyle: WidgetStatePropertyAll(text(12, 16, FontWeight.w500)),
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        minWidth: 80,
+        indicatorColor: colorScheme.primaryContainer,
+        backgroundColor: colorScheme.surfaceContainerLowest,
+      ),
+      tabBarTheme: TabBarThemeData(
+        labelColor: colorScheme.primary,
+        unselectedLabelColor: colorScheme.onSurfaceVariant,
+        labelStyle: text(15, 22, FontWeight.w600),
+        unselectedLabelStyle: text(15, 22, FontWeight.w500),
+        indicatorSize: TabBarIndicatorSize.label,
+        indicator: UnderlineTabIndicator(
+          borderRadius: BorderRadius.circular(3),
+          borderSide: BorderSide(color: colorScheme.primary, width: 3),
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         elevation: 20,
@@ -93,10 +119,12 @@ abstract final class ThemeUtils {
         surfaceTintColor: isDark ? colorScheme.surfaceContainerHighest : null,
       ),
       cardTheme: CardThemeData(
-        elevation: 1,
+        elevation: 0,
+        color: colorScheme.surfaceContainerLowest,
+        shape: const RoundedRectangleBorder(borderRadius: AppDesign.radius),
         margin: EdgeInsets.zero,
         shadowColor: Colors.transparent,
-        surfaceTintColor: isDark ? colorScheme.onSurfaceVariant : null,
+        surfaceTintColor: Colors.transparent,
       ),
       progressIndicatorTheme: isDark
           ? ProgressIndicatorThemeData(
@@ -113,11 +141,14 @@ abstract final class ThemeUtils {
           fontFamily: fontFamily,
           color: colorScheme.onSurface,
         ),
-        backgroundColor: colorScheme.surface,
+        backgroundColor: colorScheme.surfaceContainerLowest,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(16)),
+        ),
         constraints: const BoxConstraints(minWidth: 280, maxWidth: 420),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: colorScheme.surface,
+        backgroundColor: colorScheme.surfaceContainerLowest,
         shape: const RoundedRectangleBorder(
           borderRadius: Style.bottomSheetRadius,
         ),
@@ -153,7 +184,32 @@ abstract final class ThemeUtils {
         shape: Border(),
         collapsedShape: Border(),
       ),
-      listTileTheme: const ListTileThemeData(controlAffinity: .leading),
+      listTileTheme: ListTileThemeData(
+        controlAffinity: .leading,
+        minTileHeight: 56,
+        iconColor: colorScheme.onSurfaceVariant,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: colorScheme.surfaceContainer,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colorScheme.primary),
+        ),
+      ),
       filledButtonTheme: const FilledButtonThemeData(
         style: ButtonStyle(
           shadowColor: WidgetStatePropertyAll(Colors.transparent),
@@ -165,9 +221,6 @@ abstract final class ThemeUtils {
         },
       ),
     );
-    if (isDark && Pref.isPureBlackTheme) {
-      return darkenTheme(theme);
-    }
     return theme;
   }
 
