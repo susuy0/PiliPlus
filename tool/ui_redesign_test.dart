@@ -290,7 +290,7 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 50));
         debugPrint(
-          'wheel frame $i: page=${pages.page} activity=${pages.position.activity.runtimeType}',
+          'wheel frame $i: page=${pages.page} scrolling=${pages.position.isScrollingNotifier.value}',
         );
       }
       await tester.pumpAndSettle();
