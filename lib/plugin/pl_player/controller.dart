@@ -129,6 +129,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   bool _isVertical = false;
 
+  /// The Story feed keeps portrait orientation until the user leaves it.
+  bool verticalFeedMode = false;
+
   final Rx<VideoFitType> videoFit = Rx(.contain);
 
   late final RxBool continuePlayInBackground =
@@ -560,10 +563,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return null;
   }
 
-  static Future<void>? seekToIfExists(
-    Duration position, {
-    bool isSeek = true,
-  }) {
+  static Future<void>? seekToIfExists(Duration position, {bool isSeek = true}) {
     return _instance?.seekTo(position, isSeek: isSeek);
   }
 
@@ -592,6 +592,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void _onOrientationChanged(OrientationParams param) {
+    if (verticalFeedMode) return;
     _orientation = param.orientation;
     if (Platform.isIOS && !visible) return;
     final orientation = param.orientation;
@@ -926,11 +927,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     assert(!isLive || seekTo == null);
     await player.open(
-      Media(
-        video,
-        start: seekTo,
-        extras: extras.isEmpty ? null : extras,
-      ),
+      Media(video, start: seekTo, extras: extras.isEmpty ? null : extras),
       play: false,
     );
   }
@@ -973,10 +970,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   void _startWakeLockTimer() {
     _wakeLockTimer?.cancel();
-    _wakeLockTimer = Timer(
-      const Duration(milliseconds: 500),
-      _stopWakeLock,
-    );
+    _wakeLockTimer = Timer(const Duration(milliseconds: 500), _stopWakeLock);
   }
 
   void _stopWakeLockTimer() {
@@ -1460,6 +1454,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     required bool isVertical,
     DeviceOrientation? orientation,
   }) {
+    if (verticalFeedMode) return portraitUpMode();
     if (orientation == null && (mode == .none || mode == .gravity)) {
       return null;
     }

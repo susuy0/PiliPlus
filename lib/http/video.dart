@@ -16,6 +16,7 @@ import 'package:PiliPlus/models/model_hot_video_item.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
 import 'package:PiliPlus/models/pgc_lcf.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
+import 'package:PiliPlus/models/video/story.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_rank/pgc_rank_item_model.dart';
 import 'package:PiliPlus/models_new/popular/popular_precious/data.dart';
 import 'package:PiliPlus/models_new/popular/popular_series_list/list.dart';
@@ -48,6 +49,66 @@ import 'package:protobuf/protobuf.dart';
 abstract final class VideoHttp {
   static RegExp zoneRegExp = RegExp(Pref.banWordForZone, caseSensitive: false);
   static bool enableFilter = zoneRegExp.pattern.isNotEmpty;
+
+  static Future<LoadingState<List<StoryVideoItem>>> storyFeed({
+    required int aid,
+    required String bvid,
+    required int cid,
+    required int page,
+    required String sessionId,
+  }) async {
+    final res = await Request().get(
+      Api.storyFeed,
+      queryParameters: {
+        'aid': aid,
+        'bvid': bvid,
+        'cid': cid,
+        'display_id': page,
+        'build': 8430300,
+        'mobi_app': 'android_i',
+        'platform': 'android',
+        'device': 'phone',
+        'network': 'wifi',
+        'c_locale': 'zh_CN',
+        's_locale': 'zh_CN',
+        'fnval': 976,
+        'fnver': 0,
+        'force_host': 2,
+        'auto_play': 1,
+        'statistics': Constants.statisticsApp,
+      },
+      options: Options(
+        headers: {
+          'buvid': LoginHttp.buvid,
+          'session_id': sessionId,
+          'env': 'prod',
+          'app-key': 'android_hd',
+          'User-Agent': Constants.userAgent,
+        },
+      ),
+    );
+    final body = res.data;
+    if (body is! Map) return const Error('推荐接口返回异常');
+    if (body['code'] != 0) {
+      return Error(body['message']?.toString(), code: body['code'] as int?);
+    }
+    final rawItems = body['data']?['items'];
+    if (rawItems is! List) return const Error('推荐列表为空');
+    final items = <StoryVideoItem>[];
+    for (final raw in rawItems) {
+      if (raw is! Map) continue;
+      try {
+        final item = StoryVideoItem.tryParse(Map<String, dynamic>.from(raw));
+        if (item == null || GlobalData().blackMids.contains(item.owner.mid)) {
+          continue;
+        }
+        if (!RecommendFilter.filterWithExempt(item)) items.add(item);
+      } catch (_) {
+        // One unsupported card must not discard the whole recommendation page.
+      }
+    }
+    return Success(items);
+  }
 
   // 首页推荐视频
   static Future<LoadingState<List<RcmdVideoItemModel>>> rcmdVideoList({

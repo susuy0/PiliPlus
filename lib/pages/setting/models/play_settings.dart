@@ -188,6 +188,13 @@ List<SettingsModel> get playSettings => [
     defaultVal: false,
   ),
   const SwitchModel(
+    title: '竖屏短视频模式',
+    subtitle: '竖屏视频默认全屏，上下滑动连续观看推荐视频（手机端）',
+    leading: Icon(Icons.swipe_vertical_outlined),
+    setKey: SettingBoxKey.enableVerticalStory,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '自动全屏',
     subtitle: '视频开始播放时进入全屏',
     leading: Icon(Icons.fullscreen_outlined),
@@ -317,10 +324,7 @@ Future<void> _showSubtitleDialog(
     ),
   );
   if (res != null) {
-    await GStorage.setting.put(
-      SettingBoxKey.subtitlePreferenceV2,
-      res.index,
-    );
+    await GStorage.setting.put(SettingBoxKey.subtitlePreferenceV2, res.index);
     setState();
   }
 }
@@ -383,10 +387,7 @@ Future<void> showPlayerVolumeDialog(
   );
 }
 
-Future<void> _showMaxVolumeDialog(
-  BuildContext context,
-  VoidCallback setState,
-) {
+Future<void> _showMaxVolumeDialog(BuildContext context, VoidCallback setState) {
   return showVolumeDialog(
     context,
     title: const Text('最高音量'),

@@ -564,10 +564,7 @@ class VideoDetailController extends GetxController
       alignment: Alignment.centerLeft,
       child: SlideTransition(
         position: animation.drive(
-          Tween<Offset>(
-            begin: const Offset(-1.0, 0.0),
-            end: Offset.zero,
-          ),
+          Tween<Offset>(begin: const Offset(-1.0, 0.0), end: Offset.zero),
         ),
         child: Padding(
           padding: const EdgeInsets.only(top: 5),
@@ -739,10 +736,7 @@ class VideoDetailController extends GetxController
               isMp4: entry.mediaType == 1,
               hasDashAudio: entry.hasDashAudio,
             )
-          : NetworkSource(
-              videoSource: videoUrl!,
-              audioSource: audioUrl,
-            ),
+          : NetworkSource(videoSource: videoUrl!, audioSource: audioUrl),
       seekTo: seek,
       duration: data.timeLength == null
           ? null
@@ -786,6 +780,10 @@ class VideoDetailController extends GetxController
   }
 
   bool isQuerying = false;
+  Future<void>? _videoQueryTask;
+  Future<void> waitForVideoQuery() async {
+    await _videoQueryTask;
+  }
 
   final languages = Rxn<List<LanguageItem>>();
   final currLang = Rxn<String>();
@@ -829,19 +827,19 @@ class VideoDetailController extends GetxController
   Future<void> queryVideoUrl({
     bool fromReset = false,
     bool autoFullScreenFlag = false,
-  }) async {
+  }) {
     if (isFileSource) {
-      return initPlayerIfNeeded(autoFullScreenFlag);
+      return initPlayerIfNeeded(autoFullScreenFlag) ?? Future<void>.value();
     }
-    if (isQuerying) {
-      return;
+    if (_videoQueryTask case final task?) {
+      return task;
     }
     isQuerying = true;
-    try {
-      await _queryVideoUrl(fromReset, autoFullScreenFlag);
-    } finally {
-      isQuerying = false;
-    }
+    return _videoQueryTask = _queryVideoUrl(fromReset, autoFullScreenFlag)
+        .whenComplete(() {
+          isQuerying = false;
+          _videoQueryTask = null;
+        });
   }
 
   @pragma('vm:prefer-inline')
@@ -862,10 +860,12 @@ class VideoDetailController extends GetxController
     }
 
     final result = await _getVideoUrl(VideoQuality.hdrVivid.code);
+    if (isClosed) return;
 
     if (result case Success(:final response)) {
       data = response;
       if (data.dash != null) await _supplementVideoQualities();
+      if (isClosed) return;
 
       languages.value = data.language?.items;
       currLang.value = data.curLanguage;
@@ -928,7 +928,8 @@ class VideoDetailController extends GetxController
           SmartDialog.showToast('视频资源不存在');
           _autoPlay.value = false;
           videoState.value = false;
-          if (plPlayerController.isFullScreen.value) {
+          if (plPlayerController.isFullScreen.value &&
+              !plPlayerController.verticalFeedMode) {
             plPlayerController.triggerFullScreen(status: false);
           }
           return;
@@ -994,7 +995,8 @@ class VideoDetailController extends GetxController
     } else {
       _autoPlay.value = false;
       videoState.value = false;
-      if (plPlayerController.isFullScreen.value) {
+      if (plPlayerController.isFullScreen.value &&
+          !plPlayerController.verticalFeedMode) {
         plPlayerController.triggerFullScreen(status: false);
       }
       result.toast();
@@ -1591,25 +1593,21 @@ class VideoDetailController extends GetxController
       String? title;
       try {
         if (isUgc) {
-          title = Get.find<UgcIntroController>(
-            tag: heroTag,
-          ).videoDetail.value.title;
+          title = Get.find<UgcIntroController>(tag: heroTag)
+              .videoDetail
+              .value
+              .title;
         } else {
-          title = Get.find<PgcIntroController>(
-            tag: heroTag,
-          ).videoDetail.value.title;
+          title = Get.find<PgcIntroController>(tag: heroTag)
+              .videoDetail
+              .value
+              .title;
         }
       } catch (_) {}
       if (kDebugMode) {
         debugPrint(title);
       }
-      Get.toNamed(
-        '/dlna',
-        parameters: {
-          'url': url,
-          'title': ?title,
-        },
-      );
+      Get.toNamed('/dlna', parameters: {'url': url, 'title': ?title});
     } else {
       res.toast();
     }

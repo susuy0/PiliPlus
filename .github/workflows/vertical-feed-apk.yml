@@ -1,0 +1,65 @@
+name: Build vertical feed APK
+
+on:
+  push:
+    branches: [vertical-feed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vertical-feed-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - name: Apply required SDK and UI patches
+        shell: pwsh
+        run: lib/scripts/patch.ps1 android
+
+      - name: Check feed pagination
+        run: dart tool/check_vertical_feed.dart
+
+      - name: Analyze source
+        run: flutter analyze --no-pub --no-fatal-infos
+
+      - name: Set build metadata
+        shell: pwsh
+        run: lib/scripts/build.ps1 android
+
+      - name: Build arm64 APK
+        run: >-
+          flutter build apk --release --split-per-abi
+          --target-platform android-arm64
+          --android-project-arg dev=1
+          --dart-define-from-file=pili_release.json --no-pub
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: PiliPlus-vertical-feed-arm64
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -60,6 +60,7 @@ abstract final class ApiType {
     AccountType.recommend: {
       Api.recommendListWeb,
       Api.recommendListApp,
+      Api.storyFeed,
       Api.feedDislike,
       Api.feedDislikeCancel,
       Api.hotList,

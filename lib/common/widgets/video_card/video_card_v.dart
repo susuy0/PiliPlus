@@ -36,6 +36,7 @@ class VideoCardV extends StatelessWidget {
         PageUtils.viewPgc(epId: videoItem.param!);
         break;
       case 'av':
+      case 'vertical_av':
         var bvid = videoItem.bvid ?? IdUtils.av2bv(videoItem.aid!);
         var cid = videoItem.cid;
         bool isVertical = false;
@@ -133,7 +134,7 @@ class VideoCardV extends StatelessWidget {
             ),
           ),
         ),
-        if (videoItem.goto == 'av')
+        if (videoItem.goto == 'av' || videoItem.goto == 'vertical_av')
           Positioned(
             right: -5,
             bottom: -2,

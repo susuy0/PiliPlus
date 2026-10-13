@@ -87,7 +87,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   @override
   Future<void> queryVideoIntro() async {
     queryVideoTags();
-    final res = await VideoHttp.videoIntro(bvid: bvid);
+    final requestedBvid = bvid;
+    final res = await VideoHttp.videoIntro(bvid: requestedBvid);
+    if (isClosed || bvid != requestedBvid) return;
     if (res case Success(:final response)) {
       if (response.redirectUrl != null &&
           videoDetailCtr.epId == null &&
@@ -165,7 +167,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   }
 
   Future<void> queryAllStatus() async {
-    final result = await VideoHttp.videoRelation(bvid: bvid);
+    final requestedBvid = bvid;
+    final result = await VideoHttp.videoRelation(bvid: requestedBvid);
+    if (isClosed || bvid != requestedBvid) return;
     if (result case Success(:final response)) {
       late final stat = videoDetail.value.stat;
       if (response.like!) {
@@ -298,10 +302,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         children: [
           ListTile(
             dense: true,
-            title: const Text(
-              '复制链接',
-              style: TextStyle(fontSize: 14),
-            ),
+            title: const Text('复制链接', style: TextStyle(fontSize: 14)),
             onTap: () {
               Get.back();
               Utils.copyText(videoUrl);
@@ -319,10 +320,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
           ),
           ListTile(
             dense: true,
-            title: const Text(
-              '其它app打开',
-              style: TextStyle(fontSize: 14),
-            ),
+            title: const Text('其它app打开', style: TextStyle(fontSize: 14)),
             onTap: () {
               Get.back();
               PiliAndroidHelper.openUrl(videoUrl);
@@ -331,10 +329,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
           if (PlatformUtils.isMobile)
             ListTile(
               dense: true,
-              title: const Text(
-                '分享视频',
-                style: TextStyle(fontSize: 14),
-              ),
+              title: const Text('分享视频', style: TextStyle(fontSize: 14)),
               onTap: () {
                 Get.back();
                 ShareUtils.shareText(
@@ -347,10 +342,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
           if (isLogin)
             ListTile(
               dense: true,
-              title: const Text(
-                '分享至动态',
-                style: TextStyle(fontSize: 14),
-              ),
+              title: const Text('分享至动态', style: TextStyle(fontSize: 14)),
               onTap: () {
                 Get.back();
                 showModalBottomSheet(
@@ -375,10 +367,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
           if (isLogin)
             ListTile(
               dense: true,
-              title: const Text(
-                '分享至消息',
-                style: TextStyle(fontSize: 14),
-              ),
+              title: const Text('分享至消息', style: TextStyle(fontSize: 14)),
               onTap: () {
                 Get.back();
                 try {
@@ -433,11 +422,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
     }
     int attr = followStatus.value.attribute ?? 0;
     if (attr == 128) {
-      final res = await VideoHttp.relationMod(
-        mid: mid,
-        act: 6,
-        reSrc: 11,
-      );
+      final res = await VideoHttp.relationMod(mid: mid, act: 6, reSrc: 11);
       if (res.isSuccess) {
         followStatus
           ..value.attribute = 0
@@ -464,8 +449,11 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   Future<bool> onChangeEpisode(
     BaseEpisodeItem episode, {
     bool isStein = false,
+    bool awaitPlayback = false,
   }) async {
     try {
+      if (awaitPlayback) await videoDetailCtr.waitForVideoQuery();
+      if (isClosed) return false;
       final String bvid = episode.bvid ?? this.bvid;
       final int aid = episode.aid ?? IdUtils.bv2av(bvid);
       int? cid = episode.cid;
@@ -508,8 +496,17 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         ..onReset(isStein: isStein)
         ..bvid = bvid
         ..aid = aid
-        ..cid.value = cid
-        ..queryVideoUrl();
+        ..cid.value = cid;
+      if (awaitPlayback) {
+        videoDetailCtr
+          ..videoState.value = false
+          ..defaultST = Duration.zero;
+        hasLike.value = false;
+        hasFav.value = false;
+        hasDislike.value = false;
+        coinNum.value = 0;
+      }
+      final playback = videoDetailCtr.queryVideoUrl();
 
       if (this.bvid != bvid) {
         reload = true;
@@ -557,6 +554,8 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
 
       this.cid.value = cid;
       queryOnlineTotal();
+      if (awaitPlayback) await playback;
+      if (isClosed) return false;
       return true;
     } catch (e) {
       if (kDebugMode) debugPrint('ugc onChangeEpisode: $e');
@@ -763,11 +762,7 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
       return null;
     }
     SmartDialog.showLoading(msg: '正在获取AI总结');
-    final res = await VideoHttp.aiConclusion(
-      bvid: bvid,
-      cid: cid,
-      upMid: mid,
-    );
+    final res = await VideoHttp.aiConclusion(bvid: bvid, cid: cid, upMid: mid);
     SmartDialog.dismiss();
     if (res case Success(:final response)) {
       return response.modelResult;

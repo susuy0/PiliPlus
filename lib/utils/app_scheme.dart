@@ -142,6 +142,22 @@ abstract final class PiliScheme {
               return true;
             }
             return false;
+          case 'story':
+            final aid = int.tryParse(
+              uriDigitRegExp.firstMatch(path)?.group(1) ?? '',
+            );
+            if (aid == null) return false;
+            final cid =
+                int.tryParse(uri.queryParameters['cid'] ?? '') ??
+                await SearchHttp.ab2c(aid: aid);
+            if (cid == null) return false;
+            PageUtils.toVideoPage(
+              aid: aid,
+              cid: cid,
+              isVertical: true,
+              off: off,
+            );
+            return true;
           case 'video':
             // bilibili://video/12345678?dm_progress=123000&cid=12345678&dmid=12345678
             // bilibili://video/{aid}/?comment_root_id=***&comment_secondary_id=***
