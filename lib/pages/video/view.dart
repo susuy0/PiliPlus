@@ -258,7 +258,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   StoryPageLoader _authorFeedLoader(Owner owner, StoryVideoItem seed) {
     final source = AuthorFeedSource<StoryVideoItem>(
-      afterAid: seed.aid.toString(),
+      // Start with the clicked video, then page through all UP uploads. Using
+      // its aid as the initial cursor would omit every newer video (and leave
+      // an oldest-video entry with nothing else to browse).
       fetch: (aid, next) async {
         final result = await MemberHttp.spaceArchive(
           type: .video,

@@ -7,6 +7,24 @@ void check(bool value, String message) {
 }
 
 Future<void> main() async {
+  final allUploads = AuthorFeedSource<int>(
+    fetch: (aid, next) async {
+      check(aid == null, 'oldest-video entry skipped newer UP uploads');
+      return const AuthorFeedPage(items: [5, 4, 3], aid: '3', hasNext: false);
+    },
+  );
+  final oldest = VerticalFeedController<int>(
+    seed: 3,
+    loadPage: allUploads.call,
+    idOf: (id) => id,
+  );
+  await oldest.loadMore();
+  check(
+    oldest.items.join(',') == '3,5,4',
+    'UP feed omitted newer videos or duplicated the clicked video',
+  );
+  oldest.dispose();
+  print('PASS entering an old UP video retains newer uploads');
   final calls = <String?>[];
   var fail = true;
   final source = AuthorFeedSource<int>(
