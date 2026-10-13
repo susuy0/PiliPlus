@@ -199,10 +199,12 @@ void main() {
         directory = await Directory.systemTemp.createTemp('feed-cover-test');
         Hive.init(directory.path);
         GStorage.setting = await Hive.openBox('feed-cover-settings');
+        GStorage.localCache = await Hive.openBox('feed-cover-cache');
       });
       addTearDown(
         () => tester.runAsync(() async {
           await GStorage.setting.close();
+          await GStorage.localCache.close();
           await directory.delete(recursive: true);
         }),
       );
@@ -389,6 +391,11 @@ void main() {
       await tester.tap(find.byType(FeedFollowButton));
       await tester.pumpAndSettle();
       expect(calls, 2);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(calls, 3);
     },
   );
 

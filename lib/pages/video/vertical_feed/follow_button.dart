@@ -44,9 +44,22 @@ class _FeedFollowButtonState extends State<FeedFollowButton> {
       enabled: !_busy && widget.onPressed != null,
       child: Tooltip(
         message: widget.followed ? '$label · 管理关注' : '关注UP主',
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: !_busy && widget.onPressed != null ? _press : null,
+        child: TextButton(
+          onPressed: !_busy && widget.onPressed != null ? _press : null,
+          style:
+              TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 44),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                overlayColor: Colors.transparent,
+                shape: const StadiumBorder(),
+              ).copyWith(
+                side: WidgetStateProperty.resolveWith(
+                  (states) => states.contains(WidgetState.focused)
+                      ? const BorderSide(color: Colors.white)
+                      : BorderSide.none,
+                ),
+              ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 44, maxWidth: 120),
             child: Padding(
