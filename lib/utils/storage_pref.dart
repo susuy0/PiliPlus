@@ -478,6 +478,10 @@ abstract final class Pref {
 
   static bool get preInitPlayer =>
       _setting.get(SettingBoxKey.preInitPlayer, defaultValue: false);
+  // 0 off, 1 unmetered (Wi-Fi / Ethernet), 2 any connected network.
+  static int get storyPreloadMode =>
+      (_setting.get(SettingBoxKey.storyPreloadMode, defaultValue: 1) as int)
+          .clamp(0, 2);
 
   static bool get mainTabBarView =>
       _setting.get(SettingBoxKey.mainTabBarView, defaultValue: false);

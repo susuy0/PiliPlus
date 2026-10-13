@@ -194,6 +194,26 @@ List<SettingsModel> get playSettings => [
     setKey: SettingBoxKey.enableVerticalStory,
     defaultVal: true,
   ),
+  NormalModel(
+    title: '下一条视频预加载',
+    leading: const Icon(Icons.downloading_outlined),
+    getSubtitle: () =>
+        '当前：${const ['关闭', '仅 Wi-Fi / 有线网络', '所有网络'][Pref.storyPreloadMode]}；连续观看时提前准备下一条',
+    onTap: (context, setState) async {
+      final mode = await showDialog<int>(
+        context: context,
+        builder: (context) => SelectDialog<int>(
+          title: '下一条视频预加载',
+          value: Pref.storyPreloadMode,
+          values: const [(0, '关闭'), (1, '仅 Wi-Fi / 有线网络'), (2, '所有网络（使用移动流量）')],
+        ),
+      );
+      if (mode != null) {
+        await GStorage.setting.put(SettingBoxKey.storyPreloadMode, mode);
+        setState();
+      }
+    },
+  ),
   const SwitchModel(
     title: '自动全屏',
     subtitle: '视频开始播放时进入全屏',

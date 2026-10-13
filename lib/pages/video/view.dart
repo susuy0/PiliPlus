@@ -209,6 +209,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         throw StateError(result.toString());
       },
       onSwitch: _switchStoryVideo,
+      onPreload: videoDetailController.preloadStory,
+      onCancelPreload: () => videoDetailController.cancelStoryPreload(),
       playerController: videoDetailController.plPlayerController,
       isPipMode: videoDetailController.plPlayerController.isPipMode,
       introController: ugcIntroController,
@@ -1349,6 +1351,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                 plPlayerController?.videoController == null
             ? const SizedBox.shrink()
             : PLVideoPlayer(
+                key: ValueKey(plPlayerController!.videoController),
                 maxWidth: width,
                 maxHeight: height,
                 plPlayerController: plPlayerController!,

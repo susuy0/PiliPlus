@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/desktop.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/cover.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
@@ -44,6 +48,8 @@ class VerticalVideoFeed extends StatefulWidget {
     required this.onMore,
     this.onPip,
     this.isPipMode = false,
+    this.onPreload,
+    this.onCancelPreload,
   });
 
   final StoryVideoItem seed;
@@ -58,6 +64,8 @@ class VerticalVideoFeed extends StatefulWidget {
   final VoidCallback onMore;
   final VoidCallback? onPip;
   final bool isPipMode;
+  final Future<bool> Function(StoryVideoItem)? onPreload;
+  final VoidCallback? onCancelPreload;
 
   @override
   State<VerticalVideoFeed> createState() => _VerticalVideoFeedState();
@@ -68,6 +76,12 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   final _pages = PageController();
   final _wheelGate = FeedWheelGate();
   bool _pipBusy = false;
+  Timer? _preloadTimer;
+  StreamSubscription<List<ConnectivityResult>>? _preloadNetwork;
+  int? _preloadAid;
+  bool _warming = false;
+  bool _foreground = true;
+  DateTime _preloadRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _pipWasFullscreen = false;
   ({bool comments, bool expanded, bool title})? _pipPanels;
   bool get _desktopPip =>
@@ -164,7 +178,76 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   late bool _paused = widget.playerController.playerStatus.isPaused;
 
   void _onPlayerStatus(PlayerStatus status) {
-    if (mounted) setState(() => _paused = status.isPaused);
+    if (!mounted) return;
+    setState(() => _paused = status.isPaused);
+    if (status.isPaused && !_switching && _ownsPlayback) {
+      _stopPreload();
+    }
+  }
+
+  bool get _ownsPlayback =>
+      widget.playerController.videoPlayerController != null &&
+      _feed.index < _feed.items.length &&
+      widget.playerController.bvid == _feed.items[_feed.index].bvid;
+
+  void _stopPreload() {
+    _preloadAid = null;
+    widget.onCancelPreload?.call();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (!_foreground) _stopPreload();
+  }
+
+  @override
+  void didHaveMemoryPressure() => _stopPreload();
+
+  Future<void> _preloadNext() async {
+    if (Pref.storyPreloadMode == 0) {
+      if (_preloadAid != null || _warming) _stopPreload();
+      return;
+    }
+    if (!mounted ||
+        !_foreground ||
+        _systemPip ||
+        _switching ||
+        !_ownsPlayback ||
+        widget.onPreload == null ||
+        _feed.index + 1 >= _feed.items.length)
+      return;
+    final player = widget.playerController;
+    if (!player.playerStatus.isPlaying ||
+        player.isBuffering.value ||
+        (player.buffered.value - player.position.value < 2 &&
+            !(player.duration.value > 0 &&
+                player.buffered.value >= player.duration.value))) {
+      if (_warming) {
+        _stopPreload();
+        _preloadRetryAt = DateTime.now().add(const Duration(seconds: 15));
+      }
+      return;
+    }
+    final next = _feed.items[_feed.index + 1];
+    if (_warming ||
+        _preloadAid == next.aid ||
+        DateTime.now().isBefore(_preloadRetryAt))
+      return;
+    _preloadAid = next.aid;
+    _warming = true;
+    bool ready;
+    try {
+      ready = await widget.onPreload!(next);
+    } catch (_) {
+      ready = false;
+    } finally {
+      _warming = false;
+    }
+    if (!ready && _preloadAid == next.aid) {
+      _preloadAid = null;
+      _preloadRetryAt = DateTime.now().add(const Duration(seconds: 30));
+    }
   }
 
   @override
@@ -175,11 +258,31 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     widget.playerController.videoFit.value = VideoFitType.contain;
     widget.playerController.addStatusLister(_onPlayerStatus);
     _feed.loadMore();
+    _preloadTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _preloadNext(),
+    );
+    if (widget.onPreload != null) {
+      _preloadNetwork = Connectivity().onConnectivityChanged.listen((network) {
+        _preloadRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
+        if (Pref.storyPreloadMode == 1 &&
+            !network.any(
+              (e) =>
+                  e == ConnectivityResult.wifi ||
+                  e == ConnectivityResult.ethernet,
+            )) {
+          _stopPreload();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _preloadTimer?.cancel();
+    _preloadNetwork?.cancel();
+    widget.onCancelPreload?.call();
     widget.playerController.videoFit.value = _originalFit;
     widget.playerController.removeStatusLister(_onPlayerStatus);
     _feed.dispose();

@@ -40,7 +40,9 @@ jobs:
         run: lib/scripts/patch.ps1 android
 
       - name: Check feed pagination
-        run: dart tool/check_vertical_feed.dart
+        run: |
+          dart tool/check_vertical_feed.dart
+          dart tool/check_feed_preload.dart
 
       - name: Analyze source
         run: flutter analyze --no-pub --no-fatal-infos
@@ -49,7 +51,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libx11-dev libxi-dev
 
       - name: Check native UI layouts
-        run: flutter test --no-pub --reporter expanded tool/ui_redesign_test.dart
+        run: flutter test --no-pub --timeout 2m --reporter expanded tool/ui_redesign_test.dart
 
       - name: Upload native UI previews
         if: always()

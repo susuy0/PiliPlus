@@ -14,6 +14,8 @@ import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
+import 'package:PiliPlus/http/search.dart';
+import 'package:PiliPlus/models/video/story.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/action_type.dart';
@@ -66,6 +68,7 @@ import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart' show Options;
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
     show ExtendedNestedScrollViewState;
@@ -797,7 +800,214 @@ class VideoDetailController extends GetxController
     queryVideoUrl(fromReset: true);
   }
 
-  Future<LoadingState<PlayUrlModel>> _getVideoUrl(int quality) {
+  ({String key, DateTime expires, Future<LoadingState<PlayUrlModel>> result})?
+  _nextStory;
+  int _storyGeneration = 0;
+
+  String _storyRequestKey(String targetBvid, int targetCid) {
+    final account = Accounts.video;
+    return '$targetBvid:$targetCid:${identityHashCode(account)}:${account.mid}:${account.isLogin}:${plPlayerController.tryLook}:${plPlayerController.enableAudioNormalization}';
+  }
+
+  void cancelStoryPreload({bool clearMetadata = false}) {
+    _storyGeneration++;
+    if (clearMetadata) _nextStory = null;
+    plPlayerController.cancelFeedPreload(owner: heroTag);
+  }
+
+  Future<bool> preloadStory(StoryVideoItem item) async {
+    final mode = Pref.storyPreloadMode;
+    if (mode == 0 || isClosed || !isUgc || !plPlayerController.verticalFeedMode)
+      return false;
+    final generation = ++_storyGeneration;
+    final currentBvid = bvid;
+    bool current() =>
+        !isClosed &&
+        generation == _storyGeneration &&
+        bvid == currentBvid &&
+        plPlayerController.verticalFeedMode;
+    try {
+      final network = await Connectivity().checkConnectivity();
+      if (!current() || network.every((e) => e == ConnectivityResult.none))
+        return false;
+      if (mode == 1 &&
+          !network.any(
+            (e) =>
+                e == ConnectivityResult.wifi ||
+                e == ConnectivityResult.ethernet,
+          ))
+        return false;
+      var targetCid = item.cid;
+      if (targetCid == null) {
+        targetCid = (await SearchHttp.ab2cWithDimension(
+          aid: item.aid,
+          bvid: item.bvid,
+        ))?.cid;
+        if (targetCid == null || !current()) return false;
+        item.cid = targetCid;
+      }
+      final key = _storyRequestKey(item.bvid!, targetCid);
+      var prepared = _nextStory;
+      if (prepared == null ||
+          prepared.key != key ||
+          DateTime.now().isAfter(prepared.expires)) {
+        final result = _loadStoryUrl(item.bvid!, targetCid);
+        prepared = (
+          key: key,
+          expires: DateTime.now().add(const Duration(minutes: 5)),
+          result: result,
+        );
+        _nextStory = prepared;
+      }
+      final result = await prepared.result;
+      if (!current() || key != _storyRequestKey(item.bvid!, targetCid))
+        return false;
+      if (result case Success(:final response)) {
+        final expires = _storyExpiry(response);
+        if (!DateTime.now().isBefore(expires)) {
+          _nextStory = null;
+          return false;
+        }
+        if (_nextStory?.key == key)
+          _nextStory = (key: key, expires: expires, result: prepared.result);
+        final source = _storySource(response);
+        if (source == null) return false;
+        return await plPlayerController.preloadFeedSource(
+          source,
+          volume: response.volume,
+          owner: heroTag,
+        );
+      }
+    } catch (_) {
+      // Preloading is optional; foreground playback keeps its normal retry path.
+    }
+    return false;
+  }
+
+  Future<LoadingState<PlayUrlModel>> _loadStoryUrl(
+    String targetBvid,
+    int targetCid,
+  ) async {
+    Future<LoadingState<PlayUrlModel>> fetch(int quality) => VideoHttp.videoUrl(
+      bvid: targetBvid,
+      cid: targetCid,
+      qn: quality,
+      tryLook: plPlayerController.tryLook,
+      videoType: VideoType.ugc,
+      voiceBalance: plPlayerController.enableAudioNormalization,
+    );
+    final result = await fetch(VideoQuality.hdrVivid.code);
+    if (result case Success(:final response) when response.dash != null) {
+      final quality = response.missingVideoQualityBelowHighest;
+      if (quality != -1) {
+        final extra = await fetch(quality);
+        if (extra case Success(:final response))
+          result.data.dash!.video!.merge(response.dash?.video);
+      }
+    }
+    return result;
+  }
+
+  NetworkSource? _storySource(PlayUrlModel response) {
+    final videos = response.dash?.video;
+    if (videos == null || videos.isEmpty) {
+      final durl = response.durl;
+      return durl?.length == 1
+          ? NetworkSource(
+              videoSource: VideoUtils.getCdnUrl(durl!.single.playUrls),
+              audioSource: null,
+            )
+          : null;
+    }
+    final quality = response.findAvailableVideoQuality(
+      plPlayerController.cacheVideoQa ?? Pref.defaultVideoQa,
+    );
+    final formats = response.supportFormats;
+    if (formats == null || formats.isEmpty) return null;
+    final codec = VideoUtils.selectCodec(
+      formats
+          .firstWhere(
+            (format) => format.quality == quality,
+            orElse: () => formats.first,
+          )
+          .codecs!,
+      preferCodecs,
+    );
+    final available = videos
+        .where((video) => video.quality.code == quality)
+        .toList();
+    if (available.isEmpty) return null;
+    final video = available.firstWhere(
+      (video) => codec.codes.any(video.codecs!.startsWith),
+      orElse: () => available.first,
+    );
+    final audios = response.dash?.audio;
+    String? audio;
+    if (audios != null && audios.isNotEmpty) {
+      final ids = audios.map((audio) => audio.id).toList();
+      final preferred = plPlayerController.cacheAudioQa;
+      var closest = ids.findClosestTarget(
+        (id) => id <= preferred,
+        (a, b) => a > b ? a : b,
+      );
+      if (!ids.contains(preferred) && ids.any((id) => id > preferred))
+        closest = AudioQuality.k192.code;
+      audio = VideoUtils.getCdnUrl(
+        audios
+            .firstWhere(
+              (audio) => audio.id == closest,
+              orElse: () => audios.first,
+            )
+            .playUrls,
+        isAudio: true,
+      );
+    }
+    return NetworkSource(
+      videoSource: VideoUtils.getCdnUrl(video.playUrls),
+      audioSource: audio,
+    );
+  }
+
+  DateTime _storyExpiry(PlayUrlModel response) {
+    var expires = DateTime.now().add(const Duration(minutes: 5));
+    final urls = [
+      for (final video in response.dash?.video ?? <VideoItem>[])
+        ...video.playUrls,
+      for (final audio in response.dash?.audio ?? <AudioItem>[])
+        ...audio.playUrls,
+      for (final item in response.durl ?? <Durl>[]) ...item.playUrls,
+    ];
+    for (final url in urls) {
+      final deadline = int.tryParse(
+        Uri.tryParse(url)?.queryParameters['deadline'] ?? '',
+      );
+      if (deadline != null) {
+        final end = DateTime.fromMillisecondsSinceEpoch(deadline * 1000)
+            .subtract(const Duration(seconds: 30));
+        if (end.isBefore(expires)) expires = end;
+      }
+    }
+    return expires;
+  }
+
+  Future<LoadingState<PlayUrlModel>> _getVideoUrl(int quality) async {
+    final prepared = _nextStory;
+    if (plPlayerController.verticalFeedMode &&
+        quality == VideoQuality.hdrVivid.code &&
+        currLang.value == null &&
+        prepared != null &&
+        prepared.key == _storyRequestKey(bvid, cid.value) &&
+        DateTime.now().isBefore(prepared.expires)) {
+      _nextStory = null;
+      try {
+        final result = await prepared.result
+            .then<LoadingState<PlayUrlModel>?>((value) => value)
+            .timeout(const Duration(milliseconds: 250), onTimeout: () => null);
+        if (result is Success<PlayUrlModel> &&
+            DateTime.now().isBefore(_storyExpiry(result.response)))
+          return result;
+      } catch (_) {}
+    }
     return VideoHttp.videoUrl(
       cid: cid.value,
       bvid: bvid,
@@ -1253,6 +1463,7 @@ class VideoDetailController extends GetxController
 
   @override
   void onClose() {
+    cancelStoryPreload(clearMetadata: true);
     cid.close();
     if (isFileSource) {
       cacheLocalProgress();

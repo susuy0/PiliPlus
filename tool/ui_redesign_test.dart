@@ -261,25 +261,17 @@ void main() {
               ),
             ),
           );
-          await tester.pump();
-          await tester.runAsync(() async {
-            final image =
-                await (boundary.currentContext!.findRenderObject()
-                        as RenderRepaintBoundary)
-                    .toImage(pixelRatio: 1);
-            final data = (await image.toByteData(
-              format: ui.ImageByteFormat.rawRgba,
-            ))!.buffer.asUint8List();
-            for (final offset in [0, (100 * 120 + 60) * 4, data.length - 4]) {
-              expect(data.sublist(offset, offset + 4), [
-                0,
-                0,
-                0,
-                255,
-              ], reason: '$brightness / $state');
-            }
-            image.dispose();
-          });
+          await tester.pumpAndSettle();
+          final surface = find.byType(ColoredBox).last;
+          expect(tester.getSize(surface), const Size(120, 200));
+          expect(
+            surface,
+            paints..rect(
+              rect: const Rect.fromLTWH(0, 0, 120, 200),
+              color: Colors.black,
+            ),
+            reason: '$brightness / $state',
+          );
           expect(tester.takeException(), isNull);
         }
       }

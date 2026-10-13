@@ -102,6 +102,7 @@ abstract final class SettingBoxKey {
       fallbackNormalization = 'fallbackNormalization',
       superResolutionType = 'superResolutionType',
       preInitPlayer = 'preInitPlayer',
+      storyPreloadMode = 'storyPreloadMode',
       mainTabBarView = 'mainTabBarView',
       searchSuggestion = 'searchSuggestion',
       showDecorate = 'showDynDecorate',

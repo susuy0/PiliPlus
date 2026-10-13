@@ -56,7 +56,8 @@ jobs:
       - name: Check feed interactions
         run: |
           dart tool/check_vertical_feed.dart
-          flutter test --no-pub --reporter expanded tool/ui_redesign_test.dart
+          dart tool/check_feed_preload.dart
+          flutter test --no-pub --timeout 2m --reporter expanded tool/ui_redesign_test.dart
 
       - name: Build iOS
         run: flutter build ios --release --no-codesign --dart-define-from-file=pili_release.json --no-pub

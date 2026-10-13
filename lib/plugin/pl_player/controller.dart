@@ -17,6 +17,7 @@ import 'package:PiliPlus/models/user/danmaku_rule.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/preloader.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
@@ -74,6 +75,99 @@ typedef PlayOwner = ({String tag, Type type});
 class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Player? _videoPlayerController;
   VideoController? _videoController;
+  late final _feedPreloader =
+      NextVideoPreloader<({Player player, VideoController video})>(
+        release: (value) => value.player.dispose(),
+      );
+
+  String? _feedPreloadOwner;
+  void cancelFeedPreload({String? owner}) {
+    if (owner != null && owner != _feedPreloadOwner) return;
+    _feedPreloadOwner = null;
+    _feedPreloader.cancel();
+  }
+
+  String _feedSourceKey(NetworkSource source, Volume? volume) {
+    final audio = <String, String>{};
+    audioFilterExtras(volume, map: audio);
+    return '${source.videoSource}|${source.audioSource}|${onlyPlayAudio.value}|$hwdec|${audio.entries.join(',')}';
+  }
+
+  Future<bool> preloadFeedSource(
+    NetworkSource source, {
+    Volume? volume,
+    required String owner,
+  }) {
+    _feedPreloadOwner = owner;
+    final key = _feedSourceKey(source, volume);
+    return _feedPreloader.prepare(key, (current) async {
+      Player? player;
+      try {
+        if (!current() || !verticalFeedMode || _playerCount == 0)
+          throw StateError('inactive feed');
+        player = await Player.create(
+          configuration: PlayerConfiguration(
+            logLevel: .error,
+            options: {
+              'volume': '0',
+              'pause': 'yes',
+              'video-sync': Pref.videoSync,
+              if (Platform.isAndroid) 'ao': Pref.audioOutput,
+            },
+          ),
+        );
+        if (!current()) throw StateError('superseded preload');
+        final video = await VideoController.create(
+          player,
+          configuration: VideoControllerConfiguration(
+            enableHardwareAcceleration: hwdec != null,
+            androidAttachSurfaceAfterVideoParameters: false,
+            hwdec: hwdec,
+          ),
+        );
+        if (!current()) throw StateError('superseded preload');
+        player.setMediaHeader(
+          userAgent: BrowserUa.pc,
+          referer: HttpString.baseUrl,
+        );
+        if (Platform.isAndroid) player.setProperty('force-window', 'no');
+        final extras = <String, String>{
+          'cache': 'yes',
+          'cache-secs': '3',
+          'demuxer-max-bytes': '2097152',
+          'demuxer-max-back-bytes': '0',
+          'demuxer-hysteresis-secs': '1',
+        };
+        audioFilterExtras(volume, map: extras);
+        await player.open(
+          Media(_networkMediaUri(source), extras: extras),
+          play: false,
+        );
+        bool buffered(Duration value) =>
+            value > Duration.zero ||
+            (player!.state.duration > Duration.zero &&
+                value >= player.state.duration);
+        if (!buffered(player.state.buffer)) {
+          await player.stream.buffer
+              .firstWhere(buffered)
+              .timeout(const Duration(seconds: 6));
+        }
+        if (!current()) throw StateError('superseded preload');
+        return (player: player, video: video);
+      } catch (_) {
+        if (player != null) await player.dispose();
+        rethrow;
+      }
+    });
+  }
+
+  String _networkMediaUri(NetworkSource source) {
+    final audio = source.audioSource;
+    if (audio == null || audio.isEmpty) return source.videoSource;
+    if (onlyPlayAudio.value) return audio;
+    final video = source.videoSource;
+    return 'edl://!no_chapters;%${video.length}%$video;!new_stream;!no_chapters;%${audio.length}%$audio';
+  }
 
   static PlPlayerController? _instance;
 
@@ -883,6 +977,47 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _heartDuration = 0;
     danmakuController?.clear();
 
+    if (verticalFeedMode && dataSource is NetworkSource) {
+      final key = _feedSourceKey(dataSource, volume);
+      final warm = _feedPreloader.take(key);
+      if (warm != null) {
+        _feedPreloadOwner = null;
+        final old = _videoPlayerController;
+        final oldVolume =
+            old?.state.volume ??
+            (PlatformUtils.isMobile
+                ? Pref.playerVolume
+                : this.volume.value * 100);
+        try {
+          await warm.player.setVolume(oldVolume);
+          for (final entry in buffer.entries) {
+            await warm.player.command(['set', entry.key, entry.value]);
+          }
+          if (warm.player.current.isNotEmpty)
+            warm.player.current.last.extras?.addAll(buffer);
+          await setShader(superResolutionType.value, warm.player);
+          if (seekTo != null) await warm.player.seek(seekTo);
+        } catch (_) {
+          await warm.player.dispose();
+          // Keep the current player available for the regular open below.
+          return _createVideoController(dataSource, seekTo, volume);
+        }
+        if (_playerCount == 0) {
+          await warm.player.dispose();
+          return;
+        }
+        _removeListeners();
+        _videoPlayerController = warm.player;
+        _videoController = warm.video;
+        _startListeners(warm.player);
+        try {
+          await old?.dispose();
+        } catch (_) {}
+        return;
+      }
+      if (_feedPreloader.targets(key)) cancelFeedPreload();
+    }
+
     var player = _videoPlayerController;
 
     if (player == null) {
@@ -1649,6 +1784,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     _playerCount = 0;
+    _feedPreloader.dispose();
     if (removeSafeArea) {
       showSystemBar();
     }
