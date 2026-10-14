@@ -37,6 +37,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 typedef StoryPageLoader = FeedPageLoader<StoryVideoItem>;
 
@@ -1247,7 +1248,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _action(
-                    liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                    Icons.thumb_up,
                     NumUtils.numFormat(stat?.like ?? item.stat.like),
                     ready
                         ? () => intro.handleAction(intro.actionLikeVideo)
@@ -1262,13 +1263,13 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   ),
                   if (widget.commentsBuilder != null)
                     _action(
-                      Icons.chat_bubble_rounded,
+                      FontAwesomeIcons.solidCommentDots,
                       NumUtils.numFormat(stat?.reply),
                       ready ? _openComments : null,
                       semantics: '评论',
                     ),
                   _action(
-                    Icons.monetization_on_rounded,
+                    FontAwesomeIcons.b,
                     NumUtils.numFormat(stat?.coin),
                     ready ? intro.actionCoinVideo : null,
                     color: ready && intro.coinNum.value > 0
@@ -1291,7 +1292,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                         : null,
                   ),
                   _action(
-                    Icons.reply_rounded,
+                    FontAwesomeIcons.share,
                     NumUtils.numFormat(stat?.share),
                     ready ? () => intro.actionShareVideo(context) : null,
                     semantics: '分享',
