@@ -1264,13 +1264,13 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   if (widget.commentsBuilder != null)
                     _action(
                       FontAwesomeIcons.solidCommentDots,
-                      NumUtils.numFormat(stat?.reply),
+                      NumUtils.numFormat(stat?.reply ?? item.storyStat?.reply),
                       ready ? _openComments : null,
                       semantics: '评论',
                     ),
                   _action(
                     FontAwesomeIcons.b,
-                    NumUtils.numFormat(stat?.coin),
+                    NumUtils.numFormat(stat?.coin ?? item.storyStat?.coin),
                     ready ? intro.actionCoinVideo : null,
                     color: ready && intro.coinNum.value > 0
                         ? AppDesign.like
@@ -1279,7 +1279,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   ),
                   _action(
                     Icons.star_rounded,
-                    NumUtils.numFormat(stat?.favorite),
+                    NumUtils.numFormat(
+                      stat?.favorite ?? item.storyStat?.favorite,
+                    ),
                     ready
                         ? () => intro.handleAction(
                             () => intro.actionFavVideo(isQuick: true),
@@ -1293,7 +1295,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   ),
                   _action(
                     FontAwesomeIcons.share,
-                    NumUtils.numFormat(stat?.share),
+                    NumUtils.numFormat(stat?.share ?? item.storyStat?.share),
                     ready ? () => intro.actionShareVideo(context) : null,
                     semantics: '分享',
                   ),

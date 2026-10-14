@@ -22,10 +22,11 @@ class StoryVideoItem extends BaseRcmdVideoItemModel {
     this.cover = cover;
     goto = 'av';
     owner = Owner();
-    stat = Stat.fromJson({});
+    stat = StoryStat.fromJson({});
   }
 
   int? followers;
+  StoryStat? get storyStat => stat is StoryStat ? stat as StoryStat : null;
 
   BaseEpisodeItem get episode => BaseEpisodeItem(
     aid: aid,
@@ -70,8 +71,10 @@ class StoryVideoItem extends BaseRcmdVideoItemModel {
               ? Owner.fromJson(Map<String, dynamic>.from(json['owner'] as Map))
               : Owner()
           ..stat = json['stat'] is Map
-              ? Stat.fromJson(Map<String, dynamic>.from(json['stat'] as Map))
-              : Stat.fromJson({})
+              ? StoryStat.fromJson(
+                  Map<String, dynamic>.from(json['stat'] as Map),
+                )
+              : StoryStat.fromJson({})
           ..isFollowed =
               json['req_user']?['attention'] == 1 ||
               json['owner']?['relation']?['status'] == 2;
@@ -93,4 +96,16 @@ class StoryVideoItem extends BaseRcmdVideoItemModel {
     }
     return item;
   }
+}
+
+/// Preserve Story API interaction counts for pages sliding in before the
+/// detailed archive request completes. Unknown counts remain unknown.
+class StoryStat extends Stat {
+  StoryStat.fromJson(Map<String, dynamic> json) : super.fromJson(json) {
+    reply = StoryVideoItem._int(json['reply']);
+    coin = StoryVideoItem._int(json['coin']);
+    favorite = StoryVideoItem._int(json['favorite']);
+    share = StoryVideoItem._int(json['share']);
+  }
+  int? reply, coin, favorite, share;
 }

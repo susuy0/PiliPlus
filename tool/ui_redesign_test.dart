@@ -583,6 +583,10 @@ void main() {
         'dimension': {'width': 1920, 'height': 1080},
       })!;
       expect(horizontal.isPortraitVideo, isFalse);
+      expect(horizontal.storyStat?.reply, 52);
+      expect(horizontal.storyStat?.coin, 11);
+      expect(horizontal.storyStat?.favorite, 168);
+      expect(horizontal.storyStat?.share, 3);
       expect(VideoPresentation.labels({'is_upower_exclusive': true}), ['充电专属']);
       expect(
         VideoPresentation.labels({
