@@ -210,6 +210,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
         })
       >{};
   bool _switching = false;
+  bool _leavingScope = false;
   final _relations = <int, int>{};
   bool _playbackError = false;
   double? _seekSeconds;
@@ -401,7 +402,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   }
 
   Future<void> _leaveScopedFeed() async {
-    if (_returnFrames.isEmpty || _switching) return;
+    if (_returnFrames.isEmpty || _leavingScope) return;
+    _leavingScope = true;
     final frame = _returnFrames.removeLast();
     final previous = frame.feed;
     _stopPreload();
@@ -438,6 +440,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     } catch (_) {
       success = false;
     }
+    _leavingScope = false;
     if (!mounted) return;
     setState(() {
       _switching = false;
