@@ -101,7 +101,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   bool _foreground = true;
   DateTime _preloadRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _pipWasFullscreen = false;
-  ({bool comments, bool expanded, bool title})? _pipPanels;
+  ({bool comments, bool expanded, bool title, bool cinema})? _pipPanels;
   bool get _desktopPip =>
       PlatformUtils.isDesktop && widget.playerController.isDesktopPip;
   bool get _systemPip => widget.isPipMode && !PlatformUtils.isDesktop;
@@ -187,7 +187,12 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     setState(() {
       _cinema = enabled;
       _titleExpanded = false;
+      if (enabled) {
+        _commentsOpen = false;
+        _commentsExpanded = false;
+      }
     });
+    _syncPanelPlayback();
     try {
       if (PlatformUtils.isMobile) {
         if (enabled) {
@@ -570,6 +575,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           _commentsOpen = panels?.comments ?? false;
           _commentsExpanded = panels?.expanded ?? false;
           _titleExpanded = panels?.title ?? false;
+          _cinema = panels?.cinema ?? false;
+          player.feedCinemaMode = _cinema;
           _pipPanels = null;
         });
         if (_pipWasFullscreen) await player.triggerFullScreen();
@@ -579,11 +586,14 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           comments: _commentsOpen,
           expanded: _commentsExpanded,
           title: _titleExpanded,
+          cinema: _cinema,
         );
         setState(() {
           _commentsOpen = false;
           _commentsExpanded = false;
           _titleExpanded = false;
+          _cinema = false;
+          player.feedCinemaMode = false;
         });
         _syncPanelPlayback();
         if (player.isFullScreen.value)
@@ -661,7 +671,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           _pipWasFullscreen = true;
           _togglePip();
         } else {
-          player.triggerFullScreen(status: !player.isFullScreen.value);
+          _toggleCinema();
         }
       case FeedCommand.pip:
         _togglePip();
@@ -724,7 +734,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       keyboardEnabled: widget.playerController.keyboardControl,
       navigationEnabled: _canNavigate,
       onCommand: _desktopCommand,
-      child: FeedDesktopFrame(enabled: !_desktopPip, child: feed),
+      child: FeedDesktopFrame(enabled: !_desktopPip && !_cinema, child: feed),
     );
   }
 
