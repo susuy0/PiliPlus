@@ -5,14 +5,12 @@ import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/stat/stat.dart';
 import 'package:PiliPlus/common/widgets/video_popup_menu.dart';
 import 'package:PiliPlus/http/search.dart';
-import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
 import 'package:PiliPlus/models/video/story.dart';
 import 'package:PiliPlus/models_new/video/video_detail/dimension.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
-import 'package:PiliPlus/utils/extension/dimension_ext.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -40,19 +38,15 @@ class VideoCardV extends StatelessWidget {
       case 'vertical_av':
         var bvid = videoItem.bvid ?? IdUtils.av2bv(videoItem.aid!);
         var cid = videoItem.cid;
-        bool isVertical =
-            videoItem is StoryVideoItem || videoItem.goto == 'vertical_av';
-        Dimension? dimension;
-        if (videoItem is RcmdVideoItemAppModel) {
-          if (videoItem.uri case final uri?) {
-            isVertical = uri.isVerticalFromUri;
-          }
-        }
+        bool isVertical = videoItem.isPortraitVideo;
+        Dimension? dimension = videoItem.dimension;
         if (cid == null) {
           if (await SearchHttp.ab2cWithDimension(aid: videoItem.aid, bvid: bvid)
               case final res?) {
             cid = res.cid;
             dimension = res.dimension;
+            videoItem.dimension = dimension;
+            isVertical = dimension?.isVertical ?? isVertical;
           }
         }
         if (cid != null) {
@@ -62,7 +56,7 @@ class VideoCardV extends StatelessWidget {
             cid: cid,
             cover: videoItem.cover,
             title: videoItem.title,
-            extraArguments: videoItem is StoryVideoItem
+            extraArguments: videoItem is StoryVideoItem || isVertical
                 ? const {'storyFeed': true}
                 : null,
             isVertical: isVertical,
@@ -121,14 +115,28 @@ class VideoCardV extends StatelessWidget {
                             height: maxHeight,
                             borderRadius: const .vertical(top: .circular(12)),
                           ),
-                          if (videoItem is StoryVideoItem ||
-                              videoItem.goto == 'vertical_av')
+                          if (videoItem.isPortraitVideo)
                             const PBadge(
                               top: 8,
                               left: 8,
                               text: '竖屏',
                               size: .small,
                               type: .gray,
+                            ),
+                          if (videoItem.contentLabels.isNotEmpty)
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              left: videoItem.isPortraitVideo ? 64 : 8,
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: PBadge(
+                                  text: videoItem.contentLabels.first,
+                                  isStack: false,
+                                  size: .small,
+                                  type: .error,
+                                ),
+                              ),
                             ),
                           if (videoItem.duration > 0)
                             PBadge(
@@ -198,7 +206,9 @@ class VideoCardV extends StatelessWidget {
                     type: .line_primary,
                     fontSize: 9,
                   ),
-                if (videoItem.rcmdReason != null)
+                if (videoItem.rcmdReason != null &&
+                    videoItem.rcmdReason != '竖屏' &&
+                    !videoItem.contentLabels.contains(videoItem.rcmdReason))
                   PBadge(
                     text: videoItem.rcmdReason,
                     isStack: false,

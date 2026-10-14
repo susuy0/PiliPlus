@@ -12,6 +12,9 @@ import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/story_layout.dart';
+import 'package:PiliPlus/pages/video/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/video_surface.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/progress_region.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
@@ -51,6 +54,7 @@ class VerticalVideoFeed extends StatefulWidget {
     this.commentsBuilder,
     required this.onMore,
     this.onPip,
+    this.onMoreActions,
     this.isPipMode = false,
     this.onPreload,
     this.onCancelPreload,
@@ -69,6 +73,7 @@ class VerticalVideoFeed extends StatefulWidget {
   final WidgetBuilder? commentsBuilder;
   final VoidCallback onMore;
   final VoidCallback? onPip;
+  final void Function(VoidCallback, VoidCallback?)? onMoreActions;
   final bool isPipMode;
   final Future<bool> Function(StoryVideoItem)? onPreload;
   final VoidCallback? onCancelPreload;
@@ -85,6 +90,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   final _pages = PageController();
   final _wheelGate = FeedWheelGate();
   bool _pipBusy = false;
+  bool _clean = false;
+  bool _cinema = false;
+  bool _cinemaBusy = false;
   Timer? _preloadTimer;
   StreamSubscription<List<ConnectivityResult>>? _preloadNetwork;
   int? _preloadAid;
@@ -99,6 +107,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   bool get _systemPip => widget.isPipMode && !PlatformUtils.isDesktop;
   bool get _canNavigate =>
       !_switching &&
+      !_cinema &&
       (_desktopPip || (!_commentsOpen && !_titleExpanded)) &&
       _seekSeconds == null;
   late var _feed = VerticalFeedController<StoryVideoItem>(
@@ -170,7 +179,39 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     _syncPanelPlayback();
   }
 
+  Future<void> _toggleCinema() async {
+    if (_cinemaBusy || _switching || _desktopPip) return;
+    _cinemaBusy = true;
+    final enabled = !_cinema;
+    widget.playerController.feedCinemaMode = enabled;
+    setState(() {
+      _cinema = enabled;
+      _titleExpanded = false;
+    });
+    try {
+      if (PlatformUtils.isMobile) {
+        if (enabled) {
+          await landscapeLeftMode();
+        } else {
+          await portraitUpMode();
+        }
+      } else {
+        await widget.playerController.triggerFullScreen(status: enabled);
+      }
+    } finally {
+      _cinemaBusy = false;
+    }
+  }
+
   void _back() {
+    if (_cinema) {
+      _toggleCinema();
+      return;
+    }
+    if (_clean) {
+      setState(() => _clean = false);
+      return;
+    }
     if (_switching && _returnFeed == null) {
       widget.onExit();
       return;
@@ -375,6 +416,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.playerController.feedCinemaMode = false;
+    if (_cinema && PlatformUtils.isMobile) portraitUpMode();
     _preloadTimer?.cancel();
     _preloadNetwork?.cancel();
     widget.onCancelPreload?.call();
@@ -393,6 +436,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     final intro = widget.introController;
     final detail = intro.videoDetail.value;
     if (detail.bvid != item.bvid) return;
+    if (intro.userStat.value.card?.mid == detail.owner?.mid.toString()) {
+      item.followers = intro.userStat.value.follower;
+    }
     _presentations[item.aid!] = (
       detail: detail,
       liked: intro.hasLike.value,
@@ -412,7 +458,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   }
 
   Future<void> _activate(int index) async {
-    if (!mounted || _switching || index >= _feed.items.length) return;
+    if (!mounted || _switching || index < 0 || index >= _feed.items.length)
+      return;
     _rememberCurrent();
     widget.playerController.beginFeedSwitch();
     _preloadRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -636,13 +683,15 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             () => widget.introController.actionFavVideo(isQuick: true),
           );
       case FeedCommand.more:
-        if (ready) widget.onMore();
+        if (ready) _showMore();
       case FeedCommand.details:
         widget.onDetails();
       case FeedCommand.help:
         _showDesktopHelp();
       case FeedCommand.back:
-        if (_desktopPip)
+        if (_cinema)
+          _back();
+        else if (_desktopPip)
           _togglePip();
         else if (!_commentsOpen && !_titleExpanded && player.isFullScreen.value)
           player.triggerFullScreen(status: false);
@@ -717,111 +766,43 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           ? MiniScaffold(body: Builder(builder: widget.commentsBuilder!))
           : null,
       sheetHeader: _commentHeader(),
-      video: _wrapWheel(
-        FeedPager(
-          desktop: PlatformUtils.isDesktop,
-          controller: _pages,
-          enabled: _canNavigate,
-          itemCount: _feed.items.length + 1,
-          onSettled: _onPageSettled,
-          onDragStart: _rememberCurrent,
-          itemBuilder: (context, index) {
-            if (index == _feed.items.length) {
-              return FeedPage(
-                content: _tail(),
-                controls: Stack(
-                  children: [
-                    Positioned(
-                      top: FeedChrome.navigationTop(context),
-                      left: 8,
-                      child: _topButton(
-                        _author == null ? '返回' : '退出UP主视频',
-                        Icons.arrow_back_rounded,
-                        _back,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-            final item = _feed.items[index];
-            final active = index == _feed.index;
-            final page = FeedPage(
-              key: ValueKey(item.aid),
-              content: Stack(
-                fit: StackFit.expand,
-                children: [
-                  FeedCover(src: item.cover),
-                  if (active && !_systemPip && !_playbackError)
-                    Obx(() {
-                      final frameReady =
-                          widget.playerController.feedFrameReady.value;
-                      final buffering =
-                          widget.playerController.isBuffering.value;
-                      final ready =
-                          !_switching && item.aid == _playingAid && frameReady;
-                      return FeedVideoSurface(
-                        video: FeedPlayerReveal(
-                          child: widget.playerBuilder(context),
-                        ),
-                        preview: FeedCover(src: item.cover),
-                        ready: ready,
-                        pending: !ready || buffering,
-                      );
-                    }),
-                  if (active && _paused && !_switching && !_playbackError)
-                    const Center(
-                      child: IgnorePointer(
-                        child: Icon(
-                          Icons.play_arrow_rounded,
-                          size: 72,
-                          color: Colors.white70,
-                        ),
-                      ),
-                    ),
-                  if (active && _playbackError)
-                    Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            color: Colors.white70,
-                            size: 40,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            '这条视频暂时无法播放',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          const SizedBox(height: 12),
-                          FilledButton.tonal(
-                            onPressed: () => _activate(index),
-                            child: const Text('重新播放'),
-                          ),
-                          TextButton(
-                            onPressed: _next,
-                            child: const Text('跳过这一条'),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
+      video: Stack(
+        fit: StackFit.expand,
+        children: [
+          _wrapWheel(
+            FeedPager(
+              desktop: PlatformUtils.isDesktop,
+              controller: _pages,
+              enabled: _canNavigate,
+              itemCount: _feed.items.length + 1,
+              onSettled: _onPageSettled,
+              onDragStart: _rememberCurrent,
+              itemBuilder: (context, index) {
+                if (index == _feed.items.length) {
+                  return FeedPage(content: _tail());
+                }
+                final item = _feed.items[index];
+                final active = index == _feed.index;
+                return FeedPage(
+                  key: ValueKey(item.aid),
+                  content: _overlay(item, active),
+                  controls: _desktopPip ? _pipControls(item) : null,
+                );
+              },
+            ),
+          ),
+          if (!_desktopPip && !_cinema) _navigation(),
+          if (_cinema)
+            Positioned(
+              left: 8,
+              top: FeedChrome.safeTop(context) + 4,
+              child: _topButton(
+                '返回竖屏',
+                Icons.arrow_back_ios_new_rounded,
+                _back,
               ),
-              controls: _commentsOpen
-                  ? null
-                  : IgnorePointer(
-                      ignoring: !active,
-                      child: _pageControls(
-                        item,
-                        active,
-                        active && !_switching && !_playbackError,
-                      ),
-                    ),
-            );
-            return page;
-          },
-        ),
+            ),
+        ],
       ),
       controls: const SizedBox.shrink(),
     ),
@@ -836,101 +817,145 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
         )
       : child;
 
-  Widget _pageControls(StoryVideoItem item, bool selected, bool ready) =>
-      _desktopPip
-      ? _pipControls(item)
-      : Stack(
+  void _showMore() {
+    final onPip = PlatformUtils.isDesktop ? _togglePip : widget.onPip;
+    if (widget.onMoreActions case final show?) {
+      show(
+        () => setState(() {
+          _clean = !_clean;
+          _titleExpanded = false;
+        }),
+        onPip,
+      );
+    } else {
+      widget.onMore();
+    }
+  }
+
+  Widget _navigation() => Positioned(
+    top: 0,
+    left: 0,
+    right: 0,
+    child: ColoredBox(
+      color: Colors.black,
+      child: Padding(
+        padding: EdgeInsets.only(top: FeedChrome.safeTop(context) + 4),
+        child: Row(
           children: [
-            _overlay(item, ready),
-            Positioned(
-              top: FeedChrome.navigationTop(context),
-              left: 8,
-              child: _topButton(
-                _author == null ? '返回' : '退出UP主视频',
-                Icons.arrow_back_rounded,
-                _back,
-              ),
+            _topButton(
+              _cinema
+                  ? '返回竖屏'
+                  : _author == null
+                  ? '返回'
+                  : '退出UP主视频',
+              Icons.arrow_back_ios_new_rounded,
+              _back,
             ),
-            if (_author != null && !PlatformUtils.isDesktop)
-              Positioned(
-                top: FeedChrome.navigationTop(context) + 14,
-                left: 64,
-                right: 64,
-                child: Text(
-                  '${_author!.name ?? 'UP主'}的视频',
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+            Expanded(
+              child: _cinema
+                  ? const SizedBox.shrink()
+                  : Obx(() {
+                      final detail = widget.introController.videoDetail.value;
+                      final count = widget.introController.total.value;
+                      final countBvid = widget.introController.totalBvid.value;
+                      return Text(
+                        _author != null
+                            ? '${_author!.name ?? 'UP主'}的视频'
+                            : detail.bvid == widget.playerController.bvid &&
+                                  widget.introController.isShowOnlineTotal &&
+                                  countBvid == widget.playerController.bvid
+                            ? '$count人正在看'
+                            : '连续播放',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      );
+                    }),
+            ),
+            if (!_cinema) ...[
+              _topButton('搜索', Icons.search, () => Get.toNamed('/search')),
+              if (PlatformUtils.isDesktop)
+                _topButton(
+                  '快捷键 · H',
+                  Icons.keyboard_outlined,
+                  _showDesktopHelp,
                 ),
-              ),
-            if (PlatformUtils.isDesktop || widget.onPip != null)
-              Positioned(
-                top: FeedChrome.navigationTop(context),
-                right: 8,
-                child: _topButton(
+              _topButton('更多操作', Icons.more_vert, _showMore),
+              if (PlatformUtils.isDesktop || widget.onPip != null)
+                _topButton(
                   '小窗播放',
                   Icons.picture_in_picture_outlined,
                   PlatformUtils.isDesktop ? _togglePip : widget.onPip!,
                 ),
-              ),
-            if (PlatformUtils.isDesktop)
-              Positioned(
-                top: FeedChrome.navigationTop(context),
-                left: 64,
-                right: 64,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _topButton(
-                      '上一条 · ↑',
-                      Icons.keyboard_arrow_up,
-                      () => _turn(-1),
-                    ),
-                    _topButton(
-                      '下一条 · ↓',
-                      Icons.keyboard_arrow_down,
-                      () => _turn(1),
-                    ),
-                    _topButton(
-                      '全屏 · F',
-                      Icons.fullscreen,
-                      () => _desktopCommand(FeedCommand.fullscreen),
-                    ),
-                    _topButton(
-                      '快捷键 · H',
-                      Icons.keyboard_outlined,
-                      _showDesktopHelp,
-                    ),
-                  ],
-                ),
-              ),
-            if (selected)
-              Obx(
-                () =>
-                    widget.playerController.videoFit.value == VideoFitType.cover
-                    ? Positioned(
-                        top: FeedChrome.navigationTop(context),
-                        left: 64,
-                        right: 64,
-                        child: Center(
-                          child: TextButton.icon(
-                            style: TextButton.styleFrom(
-                              backgroundColor: Colors.black54,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: () =>
-                                widget.playerController.videoFit.value =
-                                    VideoFitType.contain,
-                            icon: const Icon(Icons.fit_screen, size: 16),
-                            label: const Text('已裁剪填充 · 还原'),
-                          ),
-                        ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
+            ],
           ],
-        );
+        ),
+      ),
+    ),
+  );
+
+  Widget _videoContent(StoryVideoItem item, bool active) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        FeedCover(src: item.cover),
+        if (active && !_systemPip && !_playbackError)
+          Obx(() {
+            final frameReady = widget.playerController.feedFrameReady.value;
+            final buffering = widget.playerController.isBuffering.value;
+            final ready = !_switching && item.aid == _playingAid && frameReady;
+            return FeedVideoSurface(
+              video: FeedPlayerReveal(
+                child: widget.playerBuilder(context),
+              ),
+              preview: FeedCover(src: item.cover),
+              ready: ready,
+              pending: !ready || buffering,
+            );
+          }),
+        if (active && _paused && !_switching && !_playbackError)
+          const Center(
+            child: IgnorePointer(
+              child: Icon(
+                Icons.play_arrow_rounded,
+                size: 72,
+                color: Colors.white70,
+              ),
+            ),
+          ),
+        if (active && _playbackError)
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  color: Colors.white70,
+                  size: 40,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '这条视频暂时无法播放',
+                  style: TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonal(
+                  onPressed: () => _activate(_feed.items.indexOf(item)),
+                  child: const Text('重新播放'),
+                ),
+                TextButton(
+                  onPressed: _next,
+                  child: const Text('跳过这一条'),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
 
   Widget _pipControls(StoryVideoItem item) => Stack(
     children: [
@@ -1168,111 +1193,117 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     final self = intro.isLogin && owner.mid == Accounts.main.mid;
     final seeking = active && _seekSeconds != null;
     final safe = MediaQuery.paddingOf(context).bottom;
-    return Stack(
-      children: [
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: safe + 300,
-          child: const IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Color(0xCC000000)],
-                ),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          height: FeedChrome.safeTop(context) + 104,
-          child: const IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.black54, Colors.transparent],
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (!seeking) ...[
-          Positioned(
-            right: 8,
-            bottom: safe + 60,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _action(
-                  liked ? Icons.thumb_up : Icons.thumb_up_outlined,
-                  NumUtils.numFormat(stat?.like ?? item.stat.like),
-                  ready
-                      ? () => intro.handleAction(intro.actionLikeVideo)
-                      : null,
-                  color: liked ? AppDesign.like : Colors.white,
-                  semantics: liked ? '已点赞' : '点赞',
-                  onStartTriple: ready
-                      ? () => intro.handleAction(intro.onStartTriple)
-                      : null,
-                  onCancelTriple: ready ? intro.onCancelTriple : null,
-                  tripleAnimation: ready ? intro.tripleAnimation : null,
-                ),
-                if (widget.commentsBuilder != null)
-                  _action(
-                    Icons.chat_bubble_outline_rounded,
-                    NumUtils.numFormat(stat?.reply),
-                    ready ? _openComments : null,
-                    semantics: '评论',
+    final labels = <String>{
+      ...item.contentLabels,
+      ...?detail?.contentLabels,
+      if (detail?.isUpowerExclusive == true) '充电专属',
+    }.toList();
+    final followers =
+        ready &&
+            intro.userStat.value.card?.mid.toString() == owner.mid.toString()
+        ? intro.userStat.value.follower
+        : item.followers;
+    final minimal = _commentsOpen || _desktopPip || _cinema;
+    return IgnorePointer(
+      ignoring: !active || _switching,
+      child: FeedStoryLayout(
+        topInset: _desktopPip || _cinema
+            ? 0
+            : FeedChrome.navigationTop(context) + FeedChrome.buttonExtent + 4,
+        bottomInset: minimal ? 0 : safe,
+        clean: _clean || minimal,
+        video: Stack(
+          fit: StackFit.expand,
+          children: [
+            _videoContent(item, active),
+            if (seeking)
+              Center(
+                child: IgnorePointer(
+                  child: Text(
+                    '${DurationUtils.formatDuration(_seekSeconds!.toInt())} / ${DurationUtils.formatDuration(widget.playerController.duration.value)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                _action(
-                  favorited ? Icons.star_rounded : Icons.star_border_rounded,
-                  NumUtils.numFormat(stat?.favorite),
-                  ready
-                      ? () => intro.handleAction(
-                          () => intro.actionFavVideo(isQuick: true),
-                        )
-                      : null,
-                  color: favorited ? AppDesign.favorite : Colors.white,
-                  semantics: favorited ? '已收藏' : '收藏',
-                  onLongPress: ready
-                      ? () => intro.handleAction(intro.actionFavVideo)
-                      : null,
                 ),
-                _action(
-                  Icons.reply_rounded,
-                  '分享',
-                  ready ? () => intro.actionShareVideo(context) : null,
-                  semantics: '分享',
-                ),
-                _action(
-                  Icons.more_vert_rounded,
-                  '更多',
-                  ready ? widget.onMore : null,
-                  semantics: '更多操作',
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            left: 16,
-            right: 84,
-            bottom: safe + 56,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (owner.name?.isNotEmpty == true)
-                  Row(
-                    children: [
-                      if (face?.isNotEmpty == true) ...[
+              ),
+          ],
+        ),
+        actions: seeking
+            ? const SizedBox.shrink()
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _action(
+                    liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                    NumUtils.numFormat(stat?.like ?? item.stat.like),
+                    ready
+                        ? () => intro.handleAction(intro.actionLikeVideo)
+                        : null,
+                    color: liked ? AppDesign.like : Colors.white,
+                    semantics: liked ? '已点赞' : '点赞',
+                    onStartTriple: ready
+                        ? () => intro.handleAction(intro.onStartTriple)
+                        : null,
+                    onCancelTriple: ready ? intro.onCancelTriple : null,
+                    tripleAnimation: ready ? intro.tripleAnimation : null,
+                  ),
+                  if (widget.commentsBuilder != null)
+                    _action(
+                      Icons.chat_bubble_rounded,
+                      NumUtils.numFormat(stat?.reply),
+                      ready ? _openComments : null,
+                      semantics: '评论',
+                    ),
+                  _action(
+                    Icons.monetization_on_rounded,
+                    NumUtils.numFormat(stat?.coin),
+                    ready ? intro.actionCoinVideo : null,
+                    color: ready && intro.coinNum.value > 0
+                        ? AppDesign.like
+                        : Colors.white,
+                    semantics: '投币',
+                  ),
+                  _action(
+                    Icons.star_rounded,
+                    NumUtils.numFormat(stat?.favorite),
+                    ready
+                        ? () => intro.handleAction(
+                            () => intro.actionFavVideo(isQuick: true),
+                          )
+                        : null,
+                    color: favorited ? AppDesign.favorite : Colors.white,
+                    semantics: favorited ? '已收藏' : '收藏',
+                    onLongPress: ready
+                        ? () => intro.handleAction(intro.actionFavVideo)
+                        : null,
+                  ),
+                  _action(
+                    Icons.reply_rounded,
+                    NumUtils.numFormat(stat?.share),
+                    ready ? () => intro.actionShareVideo(context) : null,
+                    semantics: '分享',
+                  ),
+                ],
+              ),
+        information: seeking
+            ? const SizedBox.shrink()
+            : SingleChildScrollView(
+                physics: active && _titleExpanded
+                    ? const ClampingScrollPhysics()
+                    : const NeverScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (labels.isNotEmpty) ...[
+                      FeedContentTags(labels: labels),
+                      const SizedBox(height: 5),
+                    ],
+                    Row(
+                      children: [
                         InkWell(
                           onTap: ready
                               ? () => Get.toNamed('/member?mid=${owner.mid}')
@@ -1280,195 +1311,284 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                           child: NetworkImgLayer(
                             src: face,
                             type: .avatar,
-                            width: 36,
-                            height: 36,
+                            width: 40,
+                            height: 40,
                           ),
                         ),
                         const SizedBox(width: 8),
-                      ],
-                      Flexible(
-                        child: InkWell(
-                          onTap: ready
-                              ? () => Get.toNamed('/member?mid=${owner.mid}')
-                              : null,
-                          child: Text(
-                            owner.name!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              height: 1.375,
-                              fontWeight: FontWeight.w600,
+                        Flexible(
+                          child: InkWell(
+                            onTap: ready
+                                ? () => Get.toNamed('/member?mid=${owner.mid}')
+                                : null,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  owner.name ?? 'UP主',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: followed
+                                        ? Colors.white
+                                        : const Color(0xFFFB7299),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (followers != null)
+                                  Text(
+                                    '${NumUtils.numFormat(followers)}粉丝',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                              ],
                             ),
+                          ),
+                        ),
+                        if (!self) ...[
+                          const SizedBox(width: 6),
+                          FeedFollowButton(
+                            key: ValueKey(owner.mid),
+                            followed: followed,
+                            attribute: attribute,
+                            onPressed: ready
+                                ? () => intro.actionRelationMod(
+                                    context,
+                                    isFollow: followed,
+                                  )
+                                : null,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    if (detail?.hasSeason == true)
+                      Text(
+                        '合集 · ${detail!.ugcSeason!.title ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                    GestureDetector(
+                      onTap: active
+                          ? () =>
+                                setState(() => _titleExpanded = !_titleExpanded)
+                          : null,
+                      child: Text(
+                        title,
+                        maxLines: active && _titleExpanded ? null : 2,
+                        overflow: active && _titleExpanded
+                            ? TextOverflow.visible
+                            : TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${NumUtils.numFormat(stat?.view ?? item.stat.view)}播放',
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        if (_author == null &&
+                            widget.authorLoader != null &&
+                            owner.mid != null)
+                          TextButton.icon(
+                            onPressed: ready
+                                ? () => _openAuthorFeed(
+                                    Owner(
+                                      mid: owner.mid,
+                                      name: owner.name,
+                                      face: face,
+                                    ),
+                                  )
+                                : null,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 32),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(
+                              Icons.video_library_outlined,
+                              size: 13,
+                            ),
+                            label: const Text(
+                              'UP主视频',
+                              style: TextStyle(fontSize: 11),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+        footer: Column(
+          children: [
+            _progress(item, active, saved?.duration, saved?.position),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: active && !_switching
+                            ? () => Get.find<VideoDetailController>(
+                                tag: intro.heroTag,
+                              ).showShootDanmakuSheet()
+                            : null,
+                        borderRadius: BorderRadius.circular(22),
+                        child: Container(
+                          height: 34,
+                          padding: const EdgeInsets.only(left: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF27252B),
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  '发个友善的弹幕见证当下',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip:
+                                    widget
+                                        .playerController
+                                        .enableShowDanmaku
+                                        .value
+                                    ? '关闭弹幕'
+                                    : '打开弹幕',
+                                onPressed: active
+                                    ? () {
+                                        setState(() {
+                                          widget
+                                              .playerController
+                                              .enableShowDanmaku
+                                              .value = !widget
+                                              .playerController
+                                              .enableShowDanmaku
+                                              .value;
+                                        });
+                                      }
+                                    : null,
+                                icon: Icon(
+                                  Icons.subtitles_outlined,
+                                  color:
+                                      widget
+                                          .playerController
+                                          .enableShowDanmaku
+                                          .value
+                                      ? Colors.white
+                                      : Colors.white38,
+                                  size: 21,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                      if (!self) ...[
-                        const SizedBox(width: 8),
-                        FeedFollowButton(
-                          key: ValueKey(owner.mid),
-                          followed: followed,
-                          attribute: attribute,
-                          onPressed: ready
-                              ? () => intro.actionRelationMod(
-                                  context,
-                                  isFollow: followed,
-                                )
-                              : null,
-                        ),
-                      ],
-                    ],
-                  ),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: () => setState(() => _titleExpanded = !_titleExpanded),
-                  child: active && _titleExpanded
-                      ? ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 180),
-                          child: SingleChildScrollView(
-                            child: Text(
-                              title,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                height: 1.47,
-                              ),
-                            ),
-                          ),
-                        )
-                      : Text(
-                          title,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            height: 1.47,
-                          ),
-                        ),
-                ),
-                const SizedBox(height: 4),
-                if (_author == null &&
-                    widget.authorLoader != null &&
-                    owner.mid != null)
-                  TextButton.icon(
-                    onPressed: ready
-                        ? () => _openAuthorFeed(
-                            Owner(mid: owner.mid, name: owner.name, face: face),
-                          )
-                        : null,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppDesign.playerMuted,
                     ),
-                    icon: const Icon(Icons.video_library_outlined, size: 16),
-                    label: const Text('UP主视频', style: TextStyle(fontSize: 12)),
-                  ),
-                TextButton.icon(
-                  onPressed: active ? widget.onDetails : null,
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppDesign.playerMuted,
-                    backgroundColor: const Color(0x73000000),
-                    minimumSize: const Size(48, 48),
-                  ),
-                  iconAlignment: IconAlignment.end,
-                  icon: const Icon(Icons.chevron_right, size: 16),
-                  label: const Text('视频详情', style: TextStyle(fontSize: 12)),
+                    _topButton('视频详情', Icons.crop_free, widget.onDetails),
+                    _topButton(
+                      '全屏观看',
+                      Icons.screen_rotation_outlined,
+                      _toggleCinema,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-        ],
-        if (seeking)
-          Center(
-            child: Text(
-              '${DurationUtils.formatDuration(_seekSeconds!.toInt())} / ${DurationUtils.formatDuration(widget.playerController.duration.value)}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.w600,
-                fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
-          ),
-        Positioned(
-          left: 12,
-          right: 12,
-          bottom: safe,
-          child: FeedProgressRegion(
-            active: active,
-            builder: (context) {
-              final total = active
-                  ? widget.playerController.duration.value
-                  : saved?.duration ?? item.duration;
-              final position = active
-                  ? widget.playerController.position.value
-                  : saved?.position ?? 0;
-              final controller = widget.playerController;
-              final primary = ColorScheme.of(context).primary;
-              return SizedBox(
-                height: 48,
-                child: ProgressBar(
-                  progress: (active ? controller.progress : position).clamp(
-                    0,
-                    total > 0 ? total : 0,
-                  ),
-                  buffered: active ? controller.buffered.value : 0,
-                  total: total > 0 ? total : 0,
-                  progressBarColor: primary,
-                  baseBarColor: const Color(0x33FFFFFF),
-                  bufferedBarColor: primary.withValues(alpha: .4),
-                  thumbColor: primary,
-                  thumbGlowColor: primary.withAlpha(80),
-                  barHeight: 3.5,
-                  thumbRadius: 7,
-                  thumbGlowRadius: 25,
-                  onDragStart: active && total > 0
-                      ? (details) {
-                          feedBack();
-                          controller.onSeekStart(details.seconds);
-                          setState(
-                            () => _seekSeconds = details.seconds.toDouble(),
-                          );
-                        }
-                      : null,
-                  onDragUpdate: active && total > 0
-                      ? (details) {
-                          if (!controller.isFileSource &&
-                              controller.showSeekPreview)
-                            controller.updatePreviewIndex(details.seconds);
-                          controller.seekPosition.value = details.seconds;
-                          setState(
-                            () => _seekSeconds = details.seconds.toDouble(),
-                          );
-                        }
-                      : null,
-                  onDragEnd: active
-                      ? () {
-                          controller.onSeekEnd();
-                          if (mounted) setState(() => _seekSeconds = null);
-                        }
-                      : null,
-                  onSeek: active && total > 0
-                      ? (milliseconds) {
-                          controller
-                            ..position.value = milliseconds ~/ 1000
-                            ..onSeekEnd()
-                            ..seekTo(
-                              Duration(milliseconds: milliseconds),
-                              isSeek: false,
-                            );
-                          if (mounted) setState(() => _seekSeconds = null);
-                        }
-                      : null,
-                ),
-              );
-            },
-          ),
+          ],
         ),
-      ],
+      ),
     );
   });
+
+  Widget _progress(
+    StoryVideoItem item,
+    bool active,
+    int? oldDuration,
+    int? oldPosition,
+  ) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: FeedProgressRegion(
+      active: active,
+      height: 32,
+      builder: (context) {
+        final controller = widget.playerController;
+        final total = active
+            ? controller.duration.value
+            : oldDuration ?? item.duration;
+        final position = active ? controller.progress : oldPosition ?? 0;
+        return ProgressBar(
+          progress: position.clamp(0, total > 0 ? total : 0),
+          buffered: active ? controller.buffered.value : 0,
+          total: total > 0 ? total : 0,
+          progressBarColor: Colors.white,
+          baseBarColor: Colors.white24,
+          bufferedBarColor: Colors.white38,
+          thumbColor: Colors.white,
+          thumbGlowColor: Colors.white24,
+          barHeight: _seekSeconds == null ? 1.3 : 3.5,
+          thumbRadius: _seekSeconds == null ? 2 : 7,
+          thumbGlowRadius: 25,
+          onDragStart: active && total > 0
+              ? (details) {
+                  feedBack();
+                  controller.onSeekStart(details.seconds);
+                  setState(() => _seekSeconds = details.seconds.toDouble());
+                }
+              : null,
+          onDragUpdate: active && total > 0
+              ? (details) {
+                  if (!controller.isFileSource && controller.showSeekPreview)
+                    controller.updatePreviewIndex(details.seconds);
+                  controller.seekPosition.value = details.seconds;
+                  setState(() => _seekSeconds = details.seconds.toDouble());
+                }
+              : null,
+          onDragEnd: active
+              ? () {
+                  controller.onSeekEnd();
+                  if (mounted) setState(() => _seekSeconds = null);
+                }
+              : null,
+          onSeek: active && total > 0
+              ? (ms) {
+                  controller
+                    ..position.value = ms ~/ 1000
+                    ..onSeekEnd()
+                    ..seekTo(Duration(milliseconds: ms), isSeek: false);
+                  if (mounted) setState(() => _seekSeconds = null);
+                }
+              : null,
+        );
+      },
+    ),
+  );
 
   Widget _action(
     IconData icon,

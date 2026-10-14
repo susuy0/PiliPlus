@@ -1,3 +1,5 @@
+import 'package:PiliPlus/models/video/presentation.dart';
+import 'package:PiliPlus/models_new/video/video_detail/dimension.dart';
 import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models/model_video.dart';
 
@@ -5,6 +7,18 @@ abstract class BaseRcmdVideoItemModel extends BaseVideoItemModel {
   String? goto;
   String? uri;
   String? rcmdReason;
+  Dimension? dimension;
+  bool verticalHint = false;
+  List<String> contentLabels = const [];
+  bool get isPortraitVideo =>
+      const {'av', 'vertical_av'}.contains(goto) &&
+      (VideoPresentation.valid(dimension)
+          ? dimension!.isVertical
+          : verticalHint ||
+                goto == 'vertical_av' ||
+                rcmdReason == '竖屏' ||
+                (VideoPresentation.dimension({}, uri: uri)?.isVertical ??
+                    false));
 
   // app推荐专属
   int? param;
@@ -18,6 +32,8 @@ class RcmdVideoItemModel extends BaseRcmdVideoItemModel {
     cid = json["cid"];
     goto = json["goto"];
     uri = json["uri"];
+    dimension = VideoPresentation.dimension(json);
+    contentLabels = VideoPresentation.labels(json);
     cover = json["pic"];
     title = json["title"];
     duration = json["duration"];

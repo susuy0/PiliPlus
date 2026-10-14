@@ -1,3 +1,4 @@
+import 'package:PiliPlus/models/video/presentation.dart';
 import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
 import 'package:PiliPlus/models/model_video.dart';
@@ -24,7 +25,7 @@ class StoryVideoItem extends BaseRcmdVideoItemModel {
     stat = Stat.fromJson({});
   }
 
-  Dimension? dimension;
+  int? followers;
 
   BaseEpisodeItem get episode => BaseEpisodeItem(
     aid: aid,
@@ -58,6 +59,11 @@ class StoryVideoItem extends BaseRcmdVideoItemModel {
             title: json['title'] as String?,
             cover: json['cover'] as String? ?? json['pic'] as String?,
           )
+          ..followers = _int(
+            json['owner']?['fans'] ?? json['owner']?['follower'],
+          )
+          ..verticalHint = kind == 'vertical_av'
+          ..contentLabels = VideoPresentation.labels(json)
           ..uri = json['uri'] as String?
           ..duration = _int(json['duration']) ?? 0
           ..owner = json['owner'] is Map

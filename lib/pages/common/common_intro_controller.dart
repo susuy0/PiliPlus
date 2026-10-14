@@ -65,6 +65,7 @@ abstract class CommonIntroController extends GetxController
   // 同时观看
   final bool isShowOnlineTotal = Pref.enableOnlineTotal;
   late final RxString total = '1'.obs;
+  final totalBvid = RxnString();
   Timer? timer;
 
   late final RxInt cid;
@@ -105,12 +106,16 @@ abstract class CommonIntroController extends GetxController
     if (!isShowOnlineTotal) {
       return;
     }
+    final targetBvid = bvid;
+    final targetCid = cid.value;
     final result = await VideoHttp.onlineTotal(
-      aid: IdUtils.bv2av(bvid),
-      bvid: bvid,
-      cid: cid.value,
+      aid: IdUtils.bv2av(targetBvid),
+      bvid: targetBvid,
+      cid: targetCid,
     );
+    if (isClosed || bvid != targetBvid || cid.value != targetCid) return;
     if (result case Success(:final response)) {
+      totalBvid.value = targetBvid;
       total.value = response;
     }
   }

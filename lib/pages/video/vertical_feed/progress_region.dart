@@ -7,14 +7,16 @@ class FeedProgressRegion extends StatelessWidget {
     super.key,
     required this.active,
     required this.builder,
+    this.height = 48,
   });
 
   final bool active;
+  final double height;
   final WidgetBuilder builder;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 48,
+    height: height,
     // An Obx without any Rx reads throws in release too. Keep the height
     // outside the observer so a failed build cannot occupy the whole page.
     child: active ? Obx(() => builder(context)) : builder(context),

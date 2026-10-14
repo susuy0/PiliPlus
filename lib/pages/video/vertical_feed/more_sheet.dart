@@ -15,6 +15,8 @@ Future<void> showFeedMore(
   required PlPlayerController player,
   required VideoDetailController detail,
   required UgcIntroController intro,
+  VoidCallback? onClean,
+  VoidCallback? onPip,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
@@ -69,6 +71,24 @@ Future<void> showFeedMore(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 children: [
+                  if (onClean != null)
+                    ListTile(
+                      leading: const Icon(Icons.layers_clear_outlined),
+                      title: const Text('清屏 / 恢复控件'),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        onClean();
+                      },
+                    ),
+                  if (onPip != null)
+                    ListTile(
+                      leading: const Icon(Icons.picture_in_picture_outlined),
+                      title: const Text('小窗播放'),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        onPip();
+                      },
+                    ),
                   const Text(
                     '播放速度',
                     style: TextStyle(

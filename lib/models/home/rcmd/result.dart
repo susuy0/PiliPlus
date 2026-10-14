@@ -1,3 +1,4 @@
+import 'package:PiliPlus/models/video/presentation.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
 import 'package:PiliPlus/models/model_video.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
@@ -24,7 +25,9 @@ class RcmdVideoItemAppModel extends BaseRcmdVideoItemModel {
     goto = json['card_goto'];
     owner = RcmdOwner.fromJson(json, goto);
     rcmdReason = json['rcmd_reason'];
-    if (rcmdReason == '竖屏') rcmdReason = null;
+    verticalHint = rcmdReason == '竖屏';
+    dimension = VideoPresentation.dimension(json);
+    contentLabels = VideoPresentation.labels(json);
     //     json['bottom_rcmd_reason'] ??
     //     json['top_rcmd_reason'];
     if (rcmdReason != null && rcmdReason!.contains('赞')) {

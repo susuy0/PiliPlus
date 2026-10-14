@@ -239,6 +239,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// The Story feed keeps portrait orientation until the user leaves it.
   bool verticalFeedMode = false;
+  bool feedCinemaMode = false;
 
   final Rx<VideoFitType> videoFit = Rx(.contain);
 

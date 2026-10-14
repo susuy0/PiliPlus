@@ -32,7 +32,6 @@ import 'package:PiliPlus/models_new/video/video_detail/ugc_season.dart';
 import 'package:PiliPlus/models_new/video/video_tag/data.dart';
 import 'package:PiliPlus/pages/common/common_intro_controller.dart';
 import 'package:PiliPlus/pages/danmaku/view.dart';
-import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
 import 'package:PiliPlus/pages/episode_panel/view.dart';
 import 'package:PiliPlus/pages/video/ai_conclusion/view.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
@@ -187,6 +186,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       await videoDetailController.plPlayerController.exitDesktopPip();
     }
     videoDetailController.plPlayerController.verticalFeedMode = false;
+    videoDetailController.plPlayerController.feedCinemaMode = false;
     await videoDetailController.plPlayerController.triggerFullScreen(
       status: false,
     );
@@ -246,6 +246,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         player: videoDetailController.plPlayerController,
         detail: videoDetailController,
         intro: ugcIntroController,
+      ),
+      onMoreActions: (onClean, onPip) => showFeedMore(
+        context,
+        player: videoDetailController.plPlayerController,
+        detail: videoDetailController,
+        intro: ugcIntroController,
+        onClean: onClean,
+        onPip: onPip,
       ),
       onPip:
           (Platform.isAndroid && PiliAndroidHelper.isPipAvailable) ||
@@ -564,6 +572,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     _verticalSubscription?.cancel();
     _verticalFeedActive.close();
     videoDetailController.plPlayerController.verticalFeedMode = false;
+    videoDetailController.plPlayerController.feedCinemaMode = false;
     plPlayerController
       ?..removeStatusLister(playerListener)
       ..removePositionListener(positionListener);
@@ -1381,13 +1390,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     required double height,
     bool isPipMode = false,
   }) {
+    // The feed's media region begins below its fixed navigation bar.
     final danmakuTop = min(
       height,
-      _verticalFeedActive.value && !isPipMode
-          ? FeedChrome.danmakuTop(
-              context,
-              mini: videoDetailController.plPlayerController.isDesktopPip,
-            )
+      _verticalFeedActive.value &&
+              videoDetailController.plPlayerController.isDesktopPip
+          ? 44.0
           : 4.0,
     );
     return popScope(
@@ -1417,7 +1425,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                 maxWidth: width,
                 maxHeight: height,
                 plPlayerController: plPlayerController!,
-                verticalFeedMode: _verticalFeedActive.value,
+                verticalFeedMode:
+                    _verticalFeedActive.value &&
+                    !plPlayerController!.feedCinemaMode,
                 danmakuTopInset: danmakuTop,
                 videoDetailController: videoDetailController,
                 introController: introController,

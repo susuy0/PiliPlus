@@ -1,3 +1,7 @@
+import 'package:PiliPlus/pages/video/vertical_feed/story_layout.dart';
+import 'package:PiliPlus/models/video/presentation.dart';
+import 'package:PiliPlus/models/home/rcmd/result.dart';
+import 'package:PiliPlus/models/video/story.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/desktop.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -525,6 +529,269 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 1));
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  test(
+    'home portrait tags use video geometry, rotation and explicit API hints',
+    () {
+      Map<String, dynamic> card({
+        Map? dimension,
+        String? reason,
+        String? uri,
+      }) => {
+        'param': '1',
+        'bvid': 'BV1xx411c7mD',
+        'card_goto': 'av',
+        'title': 'test',
+        'player_args': {'aid': 1, 'cid': 2, 'duration': 60},
+        'dimension': dimension,
+        'rcmd_reason': reason,
+        'uri': uri,
+      };
+      expect(
+        RcmdVideoItemAppModel.fromJson(
+          card(dimension: {'width': 1080, 'height': 1920}),
+        ).isPortraitVideo,
+        isTrue,
+      );
+      expect(
+        RcmdVideoItemAppModel.fromJson(
+          card(dimension: {'width': 1920, 'height': 1080}, reason: '竖屏'),
+        ).isPortraitVideo,
+        isFalse,
+      );
+      expect(
+        RcmdVideoItemAppModel.fromJson(
+          card(dimension: {'width': 1920, 'height': 1080, 'rotate': 1}),
+        ).isPortraitVideo,
+        isTrue,
+      );
+      final hinted = RcmdVideoItemAppModel.fromJson(card(reason: '竖屏'));
+      expect(hinted.rcmdReason, '竖屏');
+      expect(hinted.isPortraitVideo, isTrue);
+      expect(
+        RcmdVideoItemAppModel.fromJson(
+          card(uri: 'bilibili://video/1?player_width=1080&player_height=1920'),
+        ).isPortraitVideo,
+        isTrue,
+      );
+      expect(RcmdVideoItemAppModel.fromJson(card()).isPortraitVideo, isFalse);
+      final horizontal = StoryVideoItem.tryParse({
+        'card_goto': 'vertical_av',
+        'param': '1',
+        'dimension': {'width': 1920, 'height': 1080},
+      })!;
+      expect(horizontal.isPortraitVideo, isFalse);
+      expect(VideoPresentation.labels({'is_upower_exclusive': true}), ['充电专属']);
+      expect(
+        VideoPresentation.labels({
+          'badges': [
+            {'text': '专属内容'},
+            {'text': '充电专属'},
+          ],
+        }),
+        ['专属内容', '充电专属'],
+      );
+      expect(
+        VideoPresentation.labels({'title': '充电的视频', 'badge': '普通内容'}),
+        isEmpty,
+      );
+    },
+  );
+
+  testWidgets(
+    'story video fits above variable metadata and retains the same element in clean mode',
+    (tester) async {
+      tester.view.physicalSize = const Size(393, 852);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final events = <String>[];
+      var height = 100.0;
+      var clean = false;
+      late StateSetter update;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, set) {
+              update = set;
+              return FeedStoryLayout(
+                topInset: 100,
+                bottomInset: 34,
+                clean: clean,
+                video: SizedBox(
+                  key: const ValueKey('media'),
+                  child: _LifetimeProbe(events: events),
+                ),
+                information: SizedBox(
+                  height: height,
+                  child: const ColoredBox(color: Colors.red),
+                ),
+                actions: const SizedBox(width: 56, height: 320),
+                footer: const SizedBox(),
+              );
+            },
+          ),
+        ),
+      );
+      final center = tester.getCenter(find.byKey(const ValueKey('media'))).dy;
+      expect(center, lessThan(852 / 2));
+      update(() => height = 170);
+      await tester.pump();
+      expect(
+        tester.getCenter(find.byKey(const ValueKey('media'))).dy,
+        closeTo(center - 35, .1),
+      );
+      update(() => clean = true);
+      await tester.pump();
+      expect(events, ['mount']);
+      update(() => clean = false);
+      await tester.pump();
+      expect(events, ['mount']);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(events, ['mount', 'dispose']);
+    },
+  );
+
+  testWidgets(
+    'fixed navigation stays while video, tags, actions and footer slide as one story',
+    (tester) async {
+      tester.view.physicalSize = const Size(393, 852);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final pages = PageController();
+      addTearDown(pages.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Stack(
+            children: [
+              FeedPager(
+                controller: pages,
+                itemCount: 2,
+                onSettled: (_) {},
+                itemBuilder: (context, i) => FeedStoryLayout(
+                  topInset: 100,
+                  bottomInset: 34,
+                  video: ColoredBox(
+                    key: ValueKey('media-$i'),
+                    color: Colors.blue,
+                  ),
+                  information: SizedBox(
+                    key: ValueKey('info-$i'),
+                    height: 130,
+                    child: const FeedContentTags(labels: ['充电专属']),
+                  ),
+                  actions: SizedBox(
+                    key: ValueKey('actions-$i'),
+                    width: 56,
+                    height: 320,
+                  ),
+                  footer: ColoredBox(
+                    key: ValueKey('footer-$i'),
+                    color: Colors.red,
+                  ),
+                ),
+              ),
+              const Positioned(
+                top: 60,
+                left: 0,
+                child: SizedBox(
+                  key: ValueKey('fixed-nav'),
+                  width: 393,
+                  height: 40,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      Offset point(String key) => tester.getTopLeft(find.byKey(ValueKey(key)));
+      final initial = {
+        for (final key in [
+          'media-0',
+          'info-0',
+          'actions-0',
+          'footer-0',
+          'fixed-nav',
+        ])
+          key: point(key),
+      };
+      final drag = await tester.startGesture(const Offset(120, 340));
+      await drag.moveBy(const Offset(0, -250));
+      await tester.pump();
+      final delta = point('media-0') - initial['media-0']!;
+      expect(delta.dy, lessThan(-200));
+      for (final key in ['info-0', 'actions-0', 'footer-0']) {
+        expect(point(key) - initial[key]!, delta);
+      }
+      expect(point('fixed-nav'), initial['fixed-nav']);
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'story metadata and paid-content tags fit small phones, large text and desktop sizes',
+    (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      tester.view.devicePixelRatio = 1;
+      for (final size in [
+        const Size(320, 568),
+        const Size(393, 852),
+        const Size(468, 800),
+        const Size(904, 480),
+      ]) {
+        tester.view.physicalSize = size;
+        for (final scale in [1.0, 2.0]) {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: size,
+                  textScaler: TextScaler.linear(scale),
+                ),
+                child: FeedStoryLayout(
+                  topInset: 90,
+                  bottomInset: 24,
+                  video: const ColoredBox(color: Colors.blue),
+                  information: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const FeedContentTags(labels: ['充电专属', '专属内容']),
+                        const Text('UP主名字和视频标题较长时也应该完整适配', maxLines: 2),
+                        const FeedFollowButton(followed: false),
+                      ],
+                    ),
+                  ),
+                  actions: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(
+                      5,
+                      (i) => const FeedActionButton(
+                        icon: Icons.star,
+                        label: '49.9万',
+                        semantics: '互动',
+                      ),
+                    ),
+                  ),
+                  footer: const SizedBox(),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          expect(tester.takeException(), isNull, reason: '$size, scale=$scale');
+        }
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 

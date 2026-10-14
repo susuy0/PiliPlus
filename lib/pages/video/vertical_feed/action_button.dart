@@ -1,3 +1,5 @@
+import 'dart:math' show max;
+
 import 'package:PiliPlus/common/design_tokens.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -43,7 +45,7 @@ class FeedActionButton extends StatelessWidget {
             ? (32 + MediaQuery.textScalerOf(context).scale(11) * 1.33)
                   .clamp(48, 64)
                   .toDouble()
-            : 64,
+            : max(64, 44 + MediaQuery.textScalerOf(context).scale(12) * 1.33),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

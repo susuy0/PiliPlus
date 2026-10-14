@@ -1,3 +1,4 @@
+import 'package:PiliPlus/models/video/presentation.dart';
 import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/models_new/download/bili_download_entry_info.dart';
 import 'package:PiliPlus/models_new/video/video_detail/argue_info.dart';
@@ -31,6 +32,7 @@ class VideoDetailData {
   Dimension? dimension;
   int? seasonId;
   bool? isUpowerExclusive;
+  List<String> contentLabels;
   List<Part>? pages;
   UgcSeason? ugcSeason;
   List<Staff>? staff;
@@ -82,6 +84,7 @@ class VideoDetailData {
     this.dimension,
     this.seasonId,
     this.isUpowerExclusive,
+    this.contentLabels = const [],
     this.pages,
     this.ugcSeason,
     this.staff,
@@ -121,6 +124,7 @@ class VideoDetailData {
             : Dimension.fromJson(json['dimension'] as Map<String, dynamic>),
         seasonId: json['season_id'] as int?,
         isUpowerExclusive: json['is_upower_exclusive'] as bool?,
+        contentLabels: VideoPresentation.labels(json),
         pages: (json['pages'] as List<dynamic>?)
             ?.map((e) => Part.fromJson(e as Map<String, dynamic>))
             .toList(),
