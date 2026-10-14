@@ -222,6 +222,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     if (mid == null || mid <= 0) return;
     _chargeBusy = true;
     final wasPlaying = widget.playerController.playerStatus.isPlaying;
+    final position = widget.playerController.position.value;
+    final detailController = Get.find<VideoDetailController>(
+      tag: widget.introController.heroTag,
+    );
     final locked = Get.find<VideoDetailController>(
       tag: widget.introController.heroTag,
     ).chargeRequired.value;
@@ -234,7 +238,20 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           _feed.items[_feed.index].aid != item.aid)
         return;
       if (locked) {
+        detailController.cancelStoryPreload(clearMetadata: true);
         await _activate(_feed.items.indexOf(item));
+        if (!mounted ||
+            _playbackError ||
+            _switching ||
+            widget.playerController.bvid != item.bvid)
+          return;
+        if (position > 0) {
+          await widget.playerController.seekTo(
+            Duration(seconds: position),
+            isSeek: false,
+          );
+        }
+        if (!wasPlaying) await widget.playerController.pause();
       } else if (wasPlaying) {
         await widget.playerController.play();
       }
@@ -1625,8 +1642,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                       InkWell(
                         onTap: ready
                             ? () => Get.toNamed(
-                                '/search',
-                                parameters: {'text': item.searchKeyword!},
+                                '/searchResult',
+                                parameters: {'keyword': item.searchKeyword!},
                               )
                             : null,
                         borderRadius: BorderRadius.circular(4),
@@ -1733,7 +1750,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                                       }
                                     : null,
                                 icon: Icon(
-                                  Icons.subtitles_outlined,
+                                  chargeLocked
+                                      ? Icons.speaker_notes_off_outlined
+                                      : Icons.subtitles_outlined,
                                   color:
                                       widget
                                               .playerController
