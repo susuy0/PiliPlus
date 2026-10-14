@@ -580,6 +580,7 @@ void main() {
       final horizontal = StoryVideoItem.tryParse({
         'card_goto': 'vertical_av',
         'param': '1',
+        'stat': {'reply': 52, 'coin': 11, 'favorite': 168, 'share': 3},
         'dimension': {'width': 1920, 'height': 1080},
       })!;
       expect(horizontal.isPortraitVideo, isFalse);
