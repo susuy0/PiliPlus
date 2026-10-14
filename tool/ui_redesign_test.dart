@@ -1179,7 +1179,7 @@ void main() {
           button(followed: true, attribute: relation.$1, scale: 2.5),
         );
         expect(find.text(relation.$2), findsOneWidget);
-        expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+        expect(find.byIcon(Icons.menu_rounded), findsOneWidget);
         expect(tester.takeException(), isNull);
       }
       await tester.tap(find.byType(FeedFollowButton));
