@@ -75,7 +75,6 @@ import 'package:flutter/rendering.dart'
     show RenderProxyBox, SemanticsConfiguration;
 import 'package:flutter/services.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
-import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
@@ -181,30 +180,6 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     });
   }
 
-  void _onVolumeChanged(double value) {
-    if (mounted && !plPlayerController.volumeInterceptEventStream) {
-      plPlayerController.volume.value = value;
-      if (Platform.isIOS && !FlutterVolumeController.showSystemUI) {
-        plPlayerController
-          ..volumeIndicator.value = true
-          ..volumeTimer?.cancel()
-          ..volumeTimer = Timer(const Duration(milliseconds: 800), () {
-            if (mounted) {
-              plPlayerController.volumeIndicator.value = false;
-            }
-          });
-      }
-    }
-  }
-
-  void _getCurrVolume() {
-    FlutterVolumeController.getVolume().then((res) {
-      if (mounted) {
-        plPlayerController.volume.value = res!;
-      }
-    });
-  }
-
   int? tmpSubtitlePaddingB;
   StreamSubscription? _controlsListener;
   void _onControlChanged(bool val) {
@@ -273,15 +248,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     if (PlatformUtils.isMobile) {
       Future.microtask(() {
         try {
-          FlutterVolumeController.updateShowSystemUI(true);
-          _getCurrVolume();
-          FlutterVolumeController.addListener(
-            _onVolumeChanged,
-            // The plugin defaults to ambient and overwrites AVAudioSession.
-            // Keep media playback audible regardless of listener/mpv init order.
-            category: AudioSessionCategory.playback,
-            emitOnStart: false,
-          );
+          // The iOS plugin deactivates AVAudioSession when a listener cancels.
+          // Own it on the shared player, never on a per-video widget.
+          plPlayerController.ensureSystemVolumeListener();
         } catch (_) {}
 
         try {
@@ -391,9 +360,6 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     _animationController.dispose();
     _transformationController.dispose();
     _removeDmAction();
-    if (PlatformUtils.isMobile) {
-      FlutterVolumeController.removeListener();
-    }
     super.dispose();
   }
 

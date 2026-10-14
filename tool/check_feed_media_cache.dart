@@ -359,5 +359,45 @@ Future<void> main() async {
     });
     check(events.last == 'recovered', 'command queue remained broken');
   });
+  await run(
+    'page remounts never cancel the active audio-session volume listener',
+    () async {
+      final life = PlaybackListenerLifetime();
+      var attaches = 0, cancels = 0;
+      for (var page = 0; page < 20; page++) {
+        life.ensureAttached(() {
+          attaches++;
+        });
+      }
+      check(attaches == 1 && cancels == 0, 'page turn replaced audio listener');
+      life.dispose(() {
+        cancels++;
+      });
+      life.dispose(() {
+        cancels++;
+      });
+      life.ensureAttached(() {
+        attaches++;
+      });
+      check(
+        attaches == 1 && cancels == 1,
+        'closed player reused or double-cancelled listener',
+      );
+      final retry = PlaybackListenerLifetime();
+      await fails(() async {
+        retry.ensureAttached(() {
+          throw StateError('plugin unavailable');
+        });
+        return null;
+      });
+      retry.ensureAttached(() {
+        attaches++;
+      });
+      retry.dispose(() {
+        cancels++;
+      });
+      check(attaches == 2 && cancels == 2, 'failed attachment could not retry');
+    },
+  );
   print('$passed media-cache/playback checks passed.');
 }

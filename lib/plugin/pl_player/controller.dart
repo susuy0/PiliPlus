@@ -76,6 +76,7 @@ typedef PlayOwner = ({String tag, Type type});
 
 class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   final _playbackCommands = PlaybackCommands();
+  final _volumeLifetime = PlaybackListenerLifetime();
   Player? _videoPlayerController;
   VideoController? _videoController;
   late final _feedCache = FeedMediaCache(
@@ -1379,6 +1380,33 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     hideTaskControls();
   }
 
+  void ensureSystemVolumeListener() {
+    if (!PlatformUtils.isMobile || _playerCount == 0) return;
+    _volumeLifetime.ensureAttached(() {
+      FlutterVolumeController.updateShowSystemUI(true);
+      FlutterVolumeController.addListener(
+        (value) {
+          if (_playerCount == 0 || volumeInterceptEventStream) return;
+          volume.value = value;
+          if (Platform.isIOS && !FlutterVolumeController.showSystemUI) {
+            volumeIndicator.value = true;
+            volumeTimer?.cancel();
+            volumeTimer = Timer(const Duration(milliseconds: 800), () {
+              if (_playerCount > 0) volumeIndicator.value = false;
+            });
+          }
+        },
+        category: AudioSessionCategory.playback,
+        emitOnStart: false,
+      );
+      FlutterVolumeController.getVolume()
+          .then((value) {
+            if (_playerCount > 0 && value != null) volume.value = value;
+          })
+          .catchError((Object _) {});
+    });
+  }
+
   final RxBool volumeIndicator = false.obs;
   Timer? volumeTimer;
   bool volumeInterceptEventStream = false;
@@ -1754,6 +1782,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     _playerCount = 0;
+    _volumeLifetime.dispose(FlutterVolumeController.removeListener);
+    volumeTimer?.cancel();
     _feedPreloader.dispose();
     _feedCache.dispose();
     if (removeSafeArea) {
