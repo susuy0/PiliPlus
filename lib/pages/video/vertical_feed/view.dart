@@ -1,3 +1,5 @@
+import 'package:PiliPlus/utils/charge_utils.dart';
+
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -92,6 +94,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   final _pages = PageController();
   final _wheelGate = FeedWheelGate();
   bool _pipBusy = false;
+  bool _chargeBusy = false;
   bool _clean = false;
   bool _cinema = false;
   bool _cinemaBusy = false;
@@ -208,6 +211,35 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       }
     } finally {
       _cinemaBusy = false;
+    }
+  }
+
+  Future<void> _charge(StoryVideoItem item) async {
+    if (_switching || _chargeBusy) return;
+    final detail = widget.introController.videoDetail.value;
+    final mid =
+        (detail.bvid == item.bvid ? detail.owner?.mid : null) ?? item.owner.mid;
+    if (mid == null || mid <= 0) return;
+    _chargeBusy = true;
+    final wasPlaying = widget.playerController.playerStatus.isPlaying;
+    final locked = Get.find<VideoDetailController>(
+      tag: widget.introController.heroTag,
+    ).chargeRequired.value;
+    try {
+      await widget.playerController.pause();
+      await ChargeUtils.open(mid);
+      if (!mounted ||
+          _switching ||
+          _feed.index >= _feed.items.length ||
+          _feed.items[_feed.index].aid != item.aid)
+        return;
+      if (locked) {
+        await _activate(_feed.items.indexOf(item));
+      } else if (wasPlaying) {
+        await widget.playerController.play();
+      }
+    } finally {
+      _chargeBusy = false;
     }
   }
 
@@ -855,7 +887,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     left: 0,
     right: 0,
     child: ColoredBox(
-      color: Colors.black,
+      color: Colors.transparent,
       child: Padding(
         padding: EdgeInsets.only(top: FeedChrome.safeTop(context) + 4),
         child: Row(
@@ -902,7 +934,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   _showDesktopHelp,
                 ),
               _topButton('更多操作', Icons.more_vert, _showMore),
-              if (PlatformUtils.isDesktop || widget.onPip != null)
+              if (PlatformUtils.isDesktop)
                 _topButton(
                   '小窗播放',
                   Icons.picture_in_picture_outlined,
@@ -935,12 +967,38 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             );
           }),
         if (active && _paused && !_switching && !_playbackError)
-          const Center(
+          Center(
             child: IgnorePointer(
-              child: Icon(
-                Icons.play_arrow_rounded,
-                size: 72,
-                color: Colors.white70,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(
+                        FontAwesomeIcons.bilibili,
+                        size: 62,
+                        color: Colors.white54,
+                      ),
+                      Icon(
+                        Icons.play_arrow_rounded,
+                        size: 38,
+                        color: Colors.black54,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Obx(
+                    () => Text(
+                      '${DurationUtils.formatDuration(widget.playerController.position.value)} / ${DurationUtils.formatDuration(widget.playerController.duration.value)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -955,14 +1013,29 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                   size: 40,
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  '这条视频暂时无法播放',
+                Text(
+                  Get.find<VideoDetailController>(
+                        tag: widget.introController.heroTag,
+                      ).chargeRequired.value
+                      ? '充电后解锁完整视频'
+                      : '这条视频暂时无法播放',
                   style: TextStyle(color: Colors.white),
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonal(
-                  onPressed: () => _activate(_feed.items.indexOf(item)),
-                  child: const Text('重新播放'),
+                  onPressed: () =>
+                      Get.find<VideoDetailController>(
+                        tag: widget.introController.heroTag,
+                      ).chargeRequired.value
+                      ? _charge(item)
+                      : _activate(_feed.items.indexOf(item)),
+                  child: Text(
+                    Get.find<VideoDetailController>(
+                          tag: widget.introController.heroTag,
+                        ).chargeRequired.value
+                        ? '去充电'
+                        : '重新播放',
+                  ),
                 ),
                 TextButton(
                   onPressed: _next,
@@ -1222,12 +1295,17 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
         ? intro.userStat.value.follower
         : item.followers;
     final minimal = _commentsOpen || _desktopPip || _cinema;
+    final chargeLocked =
+        ready &&
+        Get.find<VideoDetailController>(tag: intro.heroTag)
+            .chargeRequired
+            .value;
+    final argueMessage = detail?.argueInfo?.argueMsg ?? item.argueMessage;
     return IgnorePointer(
       ignoring: !active || _switching,
       child: FeedStoryLayout(
-        topInset: _desktopPip || _cinema
-            ? 0
-            : FeedChrome.navigationTop(context) + FeedChrome.buttonExtent + 4,
+        overlay: true,
+        topInset: _desktopPip || _cinema ? 0 : FeedChrome.safeTop(context),
         bottomInset: minimal ? 0 : safe,
         clean: _clean || minimal,
         video: Stack(
@@ -1284,20 +1362,17 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                       height: 30,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          width: 2,
-                          color: ready && intro.coinNum.value > 0
-                              ? AppDesign.like
-                              : Colors.white,
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        FontAwesomeIcons.b,
-                        size: 17,
                         color: ready && intro.coinNum.value > 0
                             ? AppDesign.like
-                            : Colors.white,
+                            : const Color(0xFFEEEEEE),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text(
+                        '币',
+                        style: TextStyle(
+                          color: Color(0xFF45464D),
+                          fontSize: 20,
+                        ),
                       ),
                     ),
                     color: ready && intro.coinNum.value > 0
@@ -1315,7 +1390,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                             () => intro.actionFavVideo(isQuick: true),
                           )
                         : null,
-                    color: favorited ? AppDesign.favorite : Colors.white,
+                    color: favorited ? const Color(0xFFFB7299) : Colors.white,
                     semantics: favorited ? '已收藏' : '收藏',
                     onLongPress: ready
                         ? () => intro.handleAction(intro.actionFavVideo)
@@ -1344,6 +1419,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                       const SizedBox(height: 5),
                     ],
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         InkWell(
                           onTap: ready
@@ -1357,52 +1433,84 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Flexible(
-                          child: InkWell(
-                            onTap: ready
-                                ? () => Get.toNamed('/member?mid=${owner.mid}')
-                                : null,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  owner.name ?? 'UP主',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: followed
-                                        ? Colors.white
-                                        : const Color(0xFFFB7299),
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                if (followers != null)
-                                  Text(
-                                    '${NumUtils.numFormat(followers)}粉丝',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Wrap(
+                                spacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  InkWell(
+                                    onTap: ready
+                                        ? () => Get.toNamed(
+                                            '/member?mid=${owner.mid}',
+                                          )
+                                        : null,
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 140,
+                                      ),
+                                      child: Text(
+                                        owner.name ?? 'UP主',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                              ],
-                            ),
+                                  if (!self)
+                                    FeedFollowButton(
+                                      key: ValueKey(owner.mid),
+                                      followed: followed,
+                                      attribute: attribute,
+                                      onPressed: ready
+                                          ? () => intro.actionRelationMod(
+                                              context,
+                                              isFollow: followed,
+                                            )
+                                          : null,
+                                    ),
+                                  if (!self && owner.mid != null)
+                                    TextButton.icon(
+                                      onPressed: ready
+                                          ? () => _charge(item)
+                                          : null,
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: Colors.white,
+                                        minimumSize: const Size(0, 28),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        shape: const StadiumBorder(),
+                                        side: const BorderSide(
+                                          color: Colors.white54,
+                                        ),
+                                      ),
+                                      icon: const Icon(Icons.bolt, size: 14),
+                                      label: const Text(
+                                        '充电',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              if (followers != null)
+                                Text(
+                                  '${NumUtils.numFormat(followers)}粉丝',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                        if (!self) ...[
-                          const SizedBox(width: 6),
-                          FeedFollowButton(
-                            key: ValueKey(owner.mid),
-                            followed: followed,
-                            attribute: attribute,
-                            onPressed: ready
-                                ? () => intro.actionRelationMod(
-                                    context,
-                                    isFollow: followed,
-                                  )
-                                : null,
-                          ),
-                        ],
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -1421,8 +1529,20 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                           ? () =>
                                 setState(() => _titleExpanded = !_titleExpanded)
                           : null,
-                      child: Text(
-                        title,
+                      child: Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(text: title),
+                            TextSpan(
+                              text:
+                                  '  ${NumUtils.numFormat(stat?.view ?? item.stat.view)}播放⌄',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
                         maxLines: active && _titleExpanded ? null : 2,
                         overflow: active && _titleExpanded
                             ? TextOverflow.visible
@@ -1434,47 +1554,122 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                         ),
                       ),
                     ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${NumUtils.numFormat(stat?.view ?? item.stat.view)}播放',
-                            style: const TextStyle(
-                              color: Colors.white60,
-                              fontSize: 11,
+                    if (_titleExpanded)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${NumUtils.numFormat(stat?.view ?? item.stat.view)}播放',
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 11,
+                              ),
                             ),
+                          ),
+                          if (_author == null &&
+                              widget.authorLoader != null &&
+                              owner.mid != null)
+                            TextButton.icon(
+                              onPressed: ready
+                                  ? () => _openAuthorFeed(
+                                      Owner(
+                                        mid: owner.mid,
+                                        name: owner.name,
+                                        face: face,
+                                      ),
+                                    )
+                                  : null,
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.white70,
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 32),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              icon: const Icon(
+                                Icons.video_library_outlined,
+                                size: 13,
+                              ),
+                              label: const Text(
+                                'UP主视频',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                            ),
+                        ],
+                      ),
+                    if (argueMessage?.isNotEmpty == true)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 5),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.info_outline,
+                              size: 12,
+                              color: Colors.white54,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                argueMessage!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (item.searchKeyword != null)
+                      InkWell(
+                        onTap: ready
+                            ? () => Get.toNamed(
+                                '/search',
+                                parameters: {'text': item.searchKeyword!},
+                              )
+                            : null,
+                        borderRadius: BorderRadius.circular(4),
+                        child: Container(
+                          height: 28,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0x44383838),
+                            border: Border.all(
+                              color: Colors.white24,
+                              width: .5,
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.search,
+                                size: 17,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  item.searchTitle ??
+                                      '搜索 · ${item.searchKeyword}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 16,
+                                color: Colors.white70,
+                              ),
+                            ],
                           ),
                         ),
-                        if (_author == null &&
-                            widget.authorLoader != null &&
-                            owner.mid != null)
-                          TextButton.icon(
-                            onPressed: ready
-                                ? () => _openAuthorFeed(
-                                    Owner(
-                                      mid: owner.mid,
-                                      name: owner.name,
-                                      face: face,
-                                    ),
-                                  )
-                                : null,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white70,
-                              padding: EdgeInsets.zero,
-                              minimumSize: const Size(0, 32),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            icon: const Icon(
-                              Icons.video_library_outlined,
-                              size: 13,
-                            ),
-                            label: const Text(
-                              'UP主视频',
-                              style: TextStyle(fontSize: 11),
-                            ),
-                          ),
-                      ],
-                    ),
+                      ),
                   ],
                 ),
               ),
@@ -1489,9 +1684,11 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                     Expanded(
                       child: InkWell(
                         onTap: active && !_switching
-                            ? () => Get.find<VideoDetailController>(
-                                tag: intro.heroTag,
-                              ).showShootDanmakuSheet()
+                            ? chargeLocked
+                                  ? () => _charge(item)
+                                  : () => Get.find<VideoDetailController>(
+                                      tag: intro.heroTag,
+                                    ).showShootDanmakuSheet()
                             : null,
                         borderRadius: BorderRadius.circular(22),
                         child: Container(
@@ -1503,9 +1700,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                           ),
                           child: Row(
                             children: [
-                              const Expanded(
+                              Expanded(
                                 child: Text(
-                                  '发个友善的弹幕见证当下',
+                                  chargeLocked ? '充电后解锁' : '发个友善的弹幕见证当下',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
@@ -1522,7 +1719,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                                         .value
                                     ? '关闭弹幕'
                                     : '打开弹幕',
-                                onPressed: active
+                                onPressed: active && !chargeLocked
                                     ? () {
                                         setState(() {
                                           widget
@@ -1539,9 +1736,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                                   Icons.subtitles_outlined,
                                   color:
                                       widget
-                                          .playerController
-                                          .enableShowDanmaku
-                                          .value
+                                              .playerController
+                                              .enableShowDanmaku
+                                              .value &&
+                                          !chargeLocked
                                       ? Colors.white
                                       : Colors.white38,
                                   size: 21,
@@ -1552,10 +1750,32 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                         ),
                       ),
                     ),
-                    _topButton('视频详情', Icons.crop_free, widget.onDetails),
+                    Tooltip(
+                      message: '视频详情',
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            '详情页',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 8,
+                            ),
+                          ),
+                          SizedBox(
+                            height: 28,
+                            child: _topButton(
+                              '视频详情',
+                              Icons.crop_free,
+                              widget.onDetails,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     _topButton(
                       '全屏观看',
-                      Icons.screen_rotation_outlined,
+                      Icons.devices_outlined,
                       _toggleCinema,
                     ),
                   ],
@@ -1601,13 +1821,14 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
               progress: position.clamp(0, total > 0 ? total : 0),
               buffered: active ? controller.buffered.value : 0,
               total: total > 0 ? total : 0,
-              progressBarColor: Colors.white,
+              progressBarColor: const Color(0xFFFB7299),
+              storyThumb: true,
               baseBarColor: Colors.white24,
               bufferedBarColor: Colors.white38,
               thumbColor: Colors.white,
               thumbGlowColor: Colors.white24,
-              barHeight: _seekSeconds == null ? 1.3 : 3.5,
-              thumbRadius: _seekSeconds == null ? 2 : 7,
+              barHeight: _seekSeconds == null ? 1.8 : 3.5,
+              thumbRadius: _seekSeconds == null ? 6 : 8,
               thumbGlowRadius: 25,
               onDragStart: active && total > 0
                   ? (details) {

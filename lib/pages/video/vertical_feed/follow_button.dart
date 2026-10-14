@@ -67,7 +67,7 @@ class _FeedFollowButtonState extends State<FeedFollowButton> {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: widget.followed
-                      ? const Color(0x33000000)
+                      ? const Color(0x553B3B3B)
                       : const Color(0xFFFB7299),
                   borderRadius: BorderRadius.circular(20),
                   border: widget.followed
@@ -94,7 +94,7 @@ class _FeedFollowButtonState extends State<FeedFollowButton> {
                       else
                         Icon(
                           widget.followed
-                              ? Icons.check_rounded
+                              ? Icons.menu_rounded
                               : Icons.add_rounded,
                           color: Colors.white,
                           size: 14,

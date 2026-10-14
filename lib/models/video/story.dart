@@ -26,6 +26,8 @@ class StoryVideoItem extends BaseRcmdVideoItemModel {
   }
 
   int? followers;
+  String? searchKeyword, searchTitle, argueMessage;
+
   StoryStat? get storyStat => stat is StoryStat ? stat as StoryStat : null;
 
   BaseEpisodeItem get episode => BaseEpisodeItem(
@@ -78,6 +80,20 @@ class StoryVideoItem extends BaseRcmdVideoItemModel {
           ..isFollowed =
               json['req_user']?['attention'] == 1 ||
               json['owner']?['relation']?['status'] == 2;
+    final entrance = json['creative_entrance'];
+    if (entrance is Map && entrance['type'] == 6) {
+      try {
+        final keyword = Uri.parse(entrance['jump_uri']?.toString() ?? '')
+            .queryParameters['keyword'];
+        if (keyword != null && keyword.trim().isNotEmpty) {
+          item.searchKeyword = keyword;
+          item.searchTitle = entrance['title']?.toString();
+        }
+      } on FormatException {
+        /* Invalid cards have no search entry. */
+      }
+    }
+    item.argueMessage = json['argue_msg'] as String?;
     if (json['dimension'] is Map) {
       item.dimension = Dimension.fromJson(
         Map<String, dynamic>.from(json['dimension'] as Map),

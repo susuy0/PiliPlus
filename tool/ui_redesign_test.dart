@@ -52,6 +52,80 @@ class _DefaultPreferencesBox extends Fake implements Box<dynamic> {
 }
 
 void main() {
+  test('Story search and warning use API card data only', () {
+    final card = StoryVideoItem.tryParse({
+      'card_goto': 'vertical_av',
+      'param': '1',
+      'argue_msg': '含AI生成内容',
+      'creative_entrance': {
+        'type': 6,
+        'title': '搜索 · 三百斤青年',
+        'jump_uri': 'bilibili://search?keyword=三百斤青年',
+      },
+    })!;
+    expect(card.searchKeyword, '三百斤青年');
+    expect(card.searchTitle, '搜索 · 三百斤青年');
+    expect(card.argueMessage, '含AI生成内容');
+    final plain = StoryVideoItem.tryParse({
+      'card_goto': 'av',
+      'param': '2',
+      'title': '搜索标题不应生成推荐词',
+    })!;
+    expect(plain.searchKeyword, isNull);
+  });
+
+  testWidgets(
+    'Story overlay never shrinks or remounts video when metadata grows',
+    (tester) async {
+      tester.view.physicalSize = const Size(393, 852);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final events = <String>[];
+      var infoHeight = 100.0;
+      var clean = false;
+      late StateSetter update;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, set) {
+              update = set;
+              return FeedStoryLayout(
+                overlay: true,
+                clean: clean,
+                topInset: 54,
+                bottomInset: 34,
+                video: SizedBox(
+                  key: const ValueKey('overlay-media'),
+                  child: _LifetimeProbe(events: events),
+                ),
+                information: SizedBox(height: infoHeight),
+                actions: const SizedBox(width: 56, height: 320),
+                footer: const SizedBox(),
+              );
+            },
+          ),
+        ),
+      );
+      final rect = tester.getRect(find.byKey(const ValueKey('overlay-media')));
+      expect(rect.top, 54);
+      expect(rect.bottom, 852 - 34 - 64);
+      update(() => infoHeight = 240);
+      await tester.pump();
+      expect(tester.getRect(find.byKey(const ValueKey('overlay-media'))), rect);
+      expect(events, ['mount']);
+      update(() => clean = true);
+      await tester.pump();
+      expect(events, ['mount']);
+      update(() => clean = false);
+      await tester.pump();
+      expect(events, ['mount']);
+
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   GStorage.setting = _DefaultPreferencesBox();
   GStorage.localCache = _DefaultPreferencesBox();
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -382,6 +456,7 @@ void main() {
                   width: 320,
                   height: 48,
                   child: ProgressBar(
+                    storyThumb: true,
                     progress: 20,
                     buffered: 60,
                     total: 100,

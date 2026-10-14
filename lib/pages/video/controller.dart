@@ -119,6 +119,7 @@ class VideoDetailController extends GetxController
   // 请求返回的视频信息
   late PlayUrlModel data;
   final RxBool videoState = false.obs;
+  final RxBool chargeRequired = false.obs;
 
   /// 播放器配置 画质 音质 解码格式
   final Rxn<VideoQuality> currentVideoQa = Rxn<VideoQuality>();
@@ -1052,6 +1053,7 @@ class VideoDetailController extends GetxController
     if (_videoQueryTask case final task?) {
       return task;
     }
+    chargeRequired.value = false;
     isQuerying = true;
     return _videoQueryTask = _queryVideoUrl(fromReset, autoFullScreenFlag)
         .whenComplete(() {
@@ -1081,6 +1083,7 @@ class VideoDetailController extends GetxController
     if (isClosed) return;
 
     if (result case Success(:final response)) {
+      chargeRequired.value = false;
       data = response;
       if (data.dash != null) await _supplementVideoQualities();
       if (isClosed) return;
@@ -1108,7 +1111,9 @@ class VideoDetailController extends GetxController
         }
       }
 
-      if (data.acceptDesc?.contains('试看') == true) {
+      chargeRequired.value =
+          data.acceptDesc?.any((label) => label.contains('试看')) == true;
+      if (chargeRequired.value) {
         SmartDialog.showToast(
           '该视频为专属视频，仅提供试看',
           displayTime: const Duration(seconds: 3),
@@ -1213,6 +1218,7 @@ class VideoDetailController extends GetxController
       }
       await initPlayerIfNeeded(autoFullScreenFlag);
     } else {
+      chargeRequired.value = result is Error && result.code == 87008;
       _autoPlay.value = false;
       videoState.value = false;
       if (plPlayerController.isFullScreen.value &&

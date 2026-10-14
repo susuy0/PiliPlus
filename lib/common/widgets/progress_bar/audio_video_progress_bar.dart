@@ -39,6 +39,7 @@ class ProgressBar extends LeafRenderObjectWidget {
     required this.progressBarColor,
     required this.bufferedBarColor,
     this.thumbRadius = 10.0,
+    this.storyThumb = false,
     required this.thumbColor,
     required this.thumbGlowColor,
     this.thumbGlowRadius = 30.0,
@@ -139,6 +140,7 @@ class ProgressBar extends LeafRenderObjectWidget {
 
   /// The radius of the circle for the moveable progress bar thumb.
   final double thumbRadius;
+  final bool storyThumb;
 
   /// The color of the circle for the moveable progress bar thumb.
   ///
@@ -188,6 +190,7 @@ class ProgressBar extends LeafRenderObjectWidget {
       progressBarColor: progressBarColor,
       bufferedBarColor: bufferedBarColor,
       thumbRadius: thumbRadius,
+      storyThumb: storyThumb,
       thumbColor: thumbColor,
       thumbGlowColor: thumbGlowColor,
       thumbGlowRadius: thumbGlowRadius,
@@ -212,6 +215,7 @@ class ProgressBar extends LeafRenderObjectWidget {
       ..baseBarColor = baseBarColor
       ..progressBarColor = progressBarColor
       ..bufferedBarColor = bufferedBarColor
+      ..storyThumb = storyThumb
       ..thumbRadius = thumbRadius
       ..thumbColor = thumbColor
       ..thumbGlowColor = thumbGlowColor
@@ -346,6 +350,7 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
     required this._progressBarColor,
     required this._bufferedBarColor,
     double thumbRadius = 20.0,
+    bool storyThumb = false,
     required this._thumbColor,
     required this._thumbGlowColor,
     double thumbGlowRadius = 30.0,
@@ -354,6 +359,7 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
        _onDragUpdateUserCallback = onDragUpdate,
        _onDragEndUserCallback = onDragEnd,
        _thumbRadius = thumbRadius,
+       _storyThumb = storyThumb,
        _thumbGlowRadius = thumbGlowRadius,
        _paintThumbGlow = thumbGlowRadius > thumbRadius,
        _hitTestSelf = onDragStart != null {
@@ -377,6 +383,14 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
     _drag?.dispose();
     _drag = null;
     super.dispose();
+  }
+
+  bool _storyThumb;
+  set storyThumb(bool value) {
+    if (_storyThumb != value) {
+      _storyThumb = value;
+      markNeedsPaint();
+    }
   }
 
   // This is the gesture recognizer used to move the thumb.
@@ -779,7 +793,48 @@ class RenderProgressBar extends RenderBox implements MouseTrackerAnnotation {
       final thumbGlowPaint = Paint()..color = thumbGlowColor;
       canvas.drawCircle(center, thumbGlowRadius, thumbGlowPaint);
     }
-    canvas.drawCircle(center, thumbRadius, thumbPaint);
+    if (_storyThumb) {
+      final body = Rect.fromCenter(
+        center: center,
+        width: thumbRadius * 2,
+        height: thumbRadius * 1.55,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(body.inflate(1), const Radius.circular(3)),
+        Paint()..color = const Color(0x66FB7299),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(body, const Radius.circular(2)),
+        thumbPaint,
+      );
+      final eyes = Paint()
+        ..color = const Color(0xFF45464D)
+        ..strokeWidth = 1.8
+        ..strokeCap = StrokeCap.round;
+      for (final dx in [-thumbRadius * .35, thumbRadius * .35]) {
+        canvas.drawLine(
+          center + Offset(dx, -thumbRadius * .25),
+          center + Offset(dx, thumbRadius * .25),
+          eyes,
+        );
+      }
+      final antenna = Paint()
+        ..color = thumbColor
+        ..strokeWidth = 1.3
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+        body.topLeft + Offset(thumbRadius * .5, 0),
+        body.topLeft + Offset(thumbRadius * .25, -2.5),
+        antenna,
+      );
+      canvas.drawLine(
+        body.topRight - Offset(thumbRadius * .5, 0),
+        body.topRight - Offset(thumbRadius * .25, 2.5),
+        antenna,
+      );
+    } else {
+      canvas.drawCircle(center, thumbRadius, thumbPaint);
+    }
   }
 
   double _proportionOfTotal(int duration) {

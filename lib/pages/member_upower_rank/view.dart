@@ -1,3 +1,4 @@
+import 'package:PiliPlus/utils/charge_utils.dart';
 import 'package:PiliPlus/common/widgets/flutter/list_tile.dart';
 import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -92,13 +93,7 @@ class _UpowerRankPageState extends State<UpowerRankPage>
           title: Text('$_name的充电排行榜${_count == null ? '' : '($_count)'}'),
           actions: [
             TextButton(
-              onPressed: () => Get.toNamed(
-                '/webview',
-                parameters: {
-                  'url':
-                      'https://member.bilibili.com/mall/upower-pay?mid=$_upMid&oid=$_upMid',
-                },
-              ),
+              onPressed: () => ChargeUtils.open(int.parse(_upMid.toString())),
               style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
               child: const Text('充电'),
             ),
