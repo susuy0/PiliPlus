@@ -222,7 +222,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     if (mid == null || mid <= 0) return;
     _chargeBusy = true;
     final wasPlaying = widget.playerController.playerStatus.isPlaying;
-    final position = widget.playerController.position.value;
+    final position =
+        !_playbackError && widget.playerController.bvid == item.bvid
+        ? widget.playerController.position.value
+        : 0;
     final detailController = Get.find<VideoDetailController>(
       tag: widget.introController.heroTag,
     );
@@ -245,12 +248,17 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             _switching ||
             widget.playerController.bvid != item.bvid)
           return;
+        final generation = widget.playerController.playbackGeneration;
         if (position > 0) {
           await widget.playerController.seekTo(
             Duration(seconds: position),
             isSeek: false,
           );
         }
+        if (!mounted ||
+            _switching ||
+            widget.playerController.playbackGeneration != generation)
+          return;
         if (!wasPlaying) await widget.playerController.pause();
       } else if (wasPlaying) {
         await widget.playerController.play();
