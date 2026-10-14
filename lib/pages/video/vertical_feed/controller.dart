@@ -13,10 +13,33 @@ class VerticalFeedController<T> {
     required this.loadPage,
     required this.idOf,
     this.onChanged,
-  }) : items = [seed] {
+  }) : items = [seed],
+       preserveHistory = false {
     _seen.add(idOf(seed));
   }
 
+  /// A complete ordered list never falls through to recommendations or trims
+  /// earlier episodes while watching a long collection.
+  VerticalFeedController.fromItems({
+    required List<T> items,
+    required this.idOf,
+    required this.index,
+    this.onChanged,
+    String endMessage = '已看完该合集的视频',
+  }) : items = List<T>.of(items),
+       loadPage = _exhausted,
+       preserveHistory = true {
+    if (items.isEmpty || index < 0 || index >= items.length) {
+      throw ArgumentError('A collection needs a valid current episode');
+    }
+    _seen.addAll(items.map(idOf));
+    ended = true;
+    error = endMessage;
+  }
+
+  static Future<List<T>> _exhausted<T>(int page) async =>
+      throw const FeedExhausted();
+  final bool preserveHistory;
   final FeedPageLoader<T> loadPage;
   final int Function(T) idOf;
   void Function()? onChanged;
@@ -74,7 +97,7 @@ class VerticalFeedController<T> {
 
   /// Call only after a page settles. Keep 20 previous videos and future items.
   int trimHistory() {
-    if (items.length <= 100 || index <= 20) return 0;
+    if (preserveHistory || items.length <= 100 || index <= 20) return 0;
     final removeCount = index - 20;
     items.removeRange(0, removeCount);
     index -= removeCount;

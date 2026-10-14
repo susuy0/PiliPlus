@@ -1,3 +1,6 @@
+import 'package:PiliPlus/pages/video/vertical_feed/collection_source.dart';
+import 'package:PiliPlus/models_new/video/video_detail/data.dart';
+import 'package:PiliPlus/models_new/video/video_detail/ugc_season.dart';
 import 'package:PiliPlus/pages/shorts/controller.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -52,6 +55,108 @@ class _DefaultPreferencesBox extends Fake implements Box<dynamic> {
 }
 
 void main() {
+  test(
+    'collection preserves section order, current part and archive metadata',
+    () {
+      final current = StoryVideoItem(aid: 2, bvid: 'BV1xx411c7mD', cid: 222);
+      final detail = VideoDetailData.fromJson({
+        'owner': {'mid': 99, 'name': 'UP'},
+        'ugc_season': {
+          'id': 7,
+          'title': '合集',
+          'sections': [
+            {
+              'episodes': [
+                {
+                  'aid': 1,
+                  'cid': 101,
+                  'title': '第一集',
+                  'arc': {
+                    'pic': 'first.jpg',
+                    'duration': 60,
+                    'dimension': {'width': 1920, 'height': 1080},
+                    'stat': {'coin': 3.0, 'reply': 4},
+                  },
+                },
+                {'aid': 2, 'cid': 202},
+                {'aid': 2, 'cid': 202},
+                {'aid': 0},
+              ],
+            },
+            {
+              'episodes': [
+                {'aid': 3, 'cid': 303, 'title': '第三集', 'badge': '充电专属'},
+              ],
+            },
+          ],
+        },
+      });
+      final result = collectionFeed(detail, current)!;
+      expect(result.items.map((item) => item.aid).toList(), [1, 2, 3]);
+      expect(result.index, 1);
+      expect(result.items[1], same(current));
+      expect(result.items[1].cid, 222);
+      expect(result.items.first.owner.mid, 99);
+      expect(result.items.first.duration, 60);
+      expect(result.items.first.isPortraitVideo, isFalse);
+      expect(result.items.first.storyStat?.coin, 3);
+      expect(result.items.last.contentLabels, ['充电专属']);
+    },
+  );
+
+  test(
+    'incomplete collection data never substitutes an unrelated current video',
+    () {
+      final current = StoryVideoItem(aid: 2, bvid: 'BV1xx411c7mD', cid: 202);
+      expect(collectionFeed(VideoDetailData(), current), isNull);
+      expect(
+        collectionFeed(
+          VideoDetailData(
+            ugcSeason: UgcSeason.fromJson({
+              'sections': [
+                {
+                  'episodes': [
+                    {'aid': 1, 'cid': 101},
+                  ],
+                },
+              ],
+            }),
+          ),
+          current,
+        ),
+        isNull,
+      );
+    },
+  );
+
+  testWidgets(
+    'collection caption is actionable and inactive cards cannot switch feeds',
+    (tester) async {
+      var entered = 0;
+      Widget link(bool active) => MaterialApp(
+        home: Material(
+          child: Center(
+            child: SizedBox(
+              width: 240,
+              child: FeedCollectionLink(
+                title: '物理学照亮世界',
+                onPressed: active ? () => entered++ : null,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(link(true));
+      await tester.tap(find.text('合集 · 物理学照亮世界'));
+      await tester.pump();
+      expect(entered, 1);
+      await tester.pumpWidget(link(false));
+      await tester.tap(find.text('合集 · 物理学照亮世界'));
+      expect(entered, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test('Story search and warning use API card data only', () {
     final card = StoryVideoItem.tryParse({
       'card_goto': 'vertical_av',

@@ -164,5 +164,65 @@ Future<void> main() async {
       feed.dispose();
     },
   );
+
+  await run(
+    'collection starts at the current episode and retains earlier episodes',
+    () async {
+      final source = List.generate(140, (i) => i + 1);
+      final feed = VerticalFeedController<int>.fromItems(
+        items: source,
+        index: 110,
+        idOf: (id) => id,
+      );
+      check(
+        feed.items[feed.index] == 111,
+        'Collection restarted from the first episode',
+      );
+      source.clear();
+      check(
+        feed.items.length == 140,
+        'Source mutation changed the selected collection',
+      );
+      check(
+        feed.trimHistory() == 0 && feed.items.first == 1,
+        'Earlier collection episodes were trimmed',
+      );
+      await feed.loadMore();
+      check(
+        feed.ended && feed.error == '已看完该合集的视频' && feed.items.last == 140,
+        'Collection appended recommendations',
+      );
+      feed.dispose();
+    },
+  );
+  await run(
+    'late recommendation responses cannot replace the selected collection',
+    () async {
+      final response = Completer<List<int>>();
+      final recommendations = VerticalFeedController<int>(
+        seed: 1,
+        idOf: (id) => id,
+        loadPage: (_) => response.future,
+      );
+      final pending = recommendations.loadMore();
+      final collection = VerticalFeedController<int>.fromItems(
+        items: [3, 1, 5],
+        index: 1,
+        idOf: (id) => id,
+      );
+      response.complete([8, 9]);
+      await pending;
+      check(
+        collection.items.join(',') == '3,1,5' && collection.index == 1,
+        'Late recommendations leaked into collection',
+      );
+      check(
+        recommendations.items.join(',') == '1,8,9',
+        'Return feed lost its pagination',
+      );
+      recommendations.dispose();
+      collection.dispose();
+    },
+  );
   print('$checks queue checks passed.');
 }

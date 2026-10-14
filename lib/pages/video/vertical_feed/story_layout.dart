@@ -157,3 +157,37 @@ class FeedContentTags extends StatelessWidget {
     ],
   );
 }
+
+/// Tapping the collection caption selects its ordered Story feed.
+class FeedCollectionLink extends StatelessWidget {
+  const FeedCollectionLink({super.key, required this.title, this.onPressed});
+  final String title;
+  final VoidCallback? onPressed;
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: '播放合集 $title',
+    child: InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                '合集 · $title',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+            ),
+            const SizedBox(width: 3),
+            const Icon(Icons.chevron_right, size: 14, color: Colors.white70),
+          ],
+        ),
+      ),
+    ),
+  );
+}

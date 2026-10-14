@@ -1,3 +1,5 @@
+import 'package:PiliPlus/pages/video/vertical_feed/collection_source.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:PiliPlus/utils/charge_utils.dart';
 
 import 'dart:async';
@@ -124,8 +126,75 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       if (mounted) setState(() {});
     },
   );
-  VerticalFeedController<StoryVideoItem>? _returnFeed;
-  int _returnPosition = 0;
+  final _returnFrames =
+      <
+        ({
+          VerticalFeedController<StoryVideoItem> feed,
+          int position,
+          Owner? author,
+          int? collectionId,
+          String? collectionTitle,
+          bool playbackError,
+        })
+      >[];
+  VerticalFeedController<StoryVideoItem>? get _returnFeed =>
+      _returnFrames.isEmpty ? null : _returnFrames.last.feed;
+  int? _collectionId;
+  String? _collectionTitle;
+
+  void _saveFeed() {
+    final item = _feed.items[_feed.index];
+    _returnFrames.add((
+      feed: _feed,
+      position: !_playbackError && widget.playerController.bvid == item.bvid
+          ? widget.playerController.position.value
+          : 0,
+      author: _author,
+      collectionId: _collectionId,
+      collectionTitle: _collectionTitle,
+      playbackError: _playbackError,
+    ));
+  }
+
+  void _openCollection(VideoDetailData detail) {
+    final season = detail.ugcSeason;
+    if (_switching ||
+        season == null ||
+        season.id == _collectionId ||
+        _feed.index >= _feed.items.length)
+      return;
+    final current = _feed.items[_feed.index];
+    final source = collectionFeed(detail, current);
+    if (source == null) {
+      SmartDialog.showToast('合集列表暂未加载完整，请稍后重试');
+      return;
+    }
+    _rememberCurrent();
+    _stopPreload();
+    _saveFeed();
+    setState(() {
+      _author = null;
+      _collectionId = season.id;
+      _collectionTitle = season.title ?? '合集';
+      _titleExpanded = false;
+      _feed = VerticalFeedController<StoryVideoItem>.fromItems(
+        items: source.items,
+        index: source.index,
+        idOf: (item) => item.aid!,
+        onChanged: () {
+          if (mounted) setState(() {});
+        },
+      );
+    });
+    final selected = _feed;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && identical(_feed, selected) && _pages.hasClients) {
+        _pages.jumpToPage(source.index);
+        _preloadNext();
+      }
+    });
+  }
+
   late Owner? _author = widget.author;
   late int _playingAid = widget.seed.aid!;
   final _presentations =
@@ -294,7 +363,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     } else if (_titleExpanded) {
       setState(() => _titleExpanded = false);
     } else if (_returnFeed != null) {
-      _leaveAuthorFeed();
+      _leaveScopedFeed();
     } else {
       widget.onExit();
     }
@@ -311,10 +380,11 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     _rememberCurrent();
     _stopPreload();
     final seed = _feed.items[_feed.index];
-    _returnPosition = widget.playerController.position.value;
-    _returnFeed = _feed;
+    _saveFeed();
     setState(() {
       _author = owner;
+      _collectionId = null;
+      _collectionTitle = null;
       _titleExpanded = false;
       _playbackError = false;
       _feed = VerticalFeedController<StoryVideoItem>(
@@ -330,18 +400,20 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     _feed.loadMore();
   }
 
-  Future<void> _leaveAuthorFeed() async {
-    final previous = _returnFeed;
-    if (previous == null) return;
+  Future<void> _leaveScopedFeed() async {
+    if (_returnFrames.isEmpty || _switching) return;
+    final frame = _returnFrames.removeLast();
+    final previous = frame.feed;
     _stopPreload();
     final authorFeed = _feed;
     final wasSwitching = _switching;
     final target = previous.items[previous.index];
-    final position = _returnPosition;
+    final position = frame.position;
     setState(() {
       _feed = previous;
-      _returnFeed = null;
-      _author = widget.author;
+      _author = frame.author;
+      _collectionId = frame.collectionId;
+      _collectionTitle = frame.collectionTitle;
       _switching = true;
       _playbackError = false;
     });
@@ -350,7 +422,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       if (mounted && _pages.hasClients) _pages.jumpToPage(previous.index);
     });
     // A pending UP load may still replace the current player after exit.
-    var success = !wasSwitching && widget.playerController.bvid == target.bvid;
+    var success =
+        !wasSwitching &&
+        !frame.playbackError &&
+        widget.playerController.bvid == target.bvid;
     try {
       if (!success) {
         success = await widget.onSwitch(target);
@@ -494,7 +569,10 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     widget.playerController.videoFit.value = _originalFit;
     widget.playerController.removeStatusLister(_onPlayerStatus);
     _feed.dispose();
-    _returnFeed?.dispose();
+    for (final frame in _returnFrames) {
+      frame.feed.dispose();
+    }
+    _returnFrames.clear();
     _wheelGate.dispose();
     _pages.dispose();
     super.dispose();
@@ -920,6 +998,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             _topButton(
               _cinema
                   ? '返回竖屏'
+                  : _collectionTitle != null
+                  ? '退出合集'
                   : _author == null
                   ? '返回'
                   : '退出UP主视频',
@@ -934,7 +1014,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                       final count = widget.introController.total.value;
                       final countBvid = widget.introController.totalBvid.value;
                       return Text(
-                        _author != null
+                        _collectionTitle != null
+                            ? '合集 · $_collectionTitle'
+                            : _author != null
                             ? '${_author!.name ?? 'UP主'}的视频'
                             : detail.bvid == widget.playerController.bvid &&
                                   widget.introController.isShowOnlineTotal &&
@@ -1267,7 +1349,11 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
             const SizedBox(height: 16),
             FilledButton.tonal(
               onPressed: _feed.ended ? _back : _loadFromTail,
-              child: Text(_feed.ended ? '退出UP主视频' : '重新加载'),
+              child: Text(
+                _feed.ended
+                    ? (_collectionTitle != null ? '退出合集' : '退出UP主视频')
+                    : '重新加载',
+              ),
             ),
             TextButton(
               onPressed: widget.onDetails,
@@ -1540,14 +1626,9 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                     ),
                     const SizedBox(height: 6),
                     if (detail?.hasSeason == true)
-                      Text(
-                        '合集 · ${detail!.ugcSeason!.title ?? ''}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                        ),
+                      FeedCollectionLink(
+                        title: detail!.ugcSeason!.title ?? '',
+                        onPressed: ready ? () => _openCollection(detail) : null,
                       ),
                     GestureDetector(
                       onTap: active
