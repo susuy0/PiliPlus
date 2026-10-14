@@ -2,6 +2,7 @@ import 'package:PiliPlus/pages/video/vertical_feed/desktop.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/progress_region.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/cover.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/follow_button.dart';
@@ -10,6 +11,7 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/audio_video_progress_bar.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:get/get.dart';
 
 import 'dart:async';
 
@@ -74,6 +76,183 @@ void main() {
       PanelPlaybackAction.none,
     );
   });
+
+  testWidgets(
+    'inactive progress cannot become a full-page release error surface',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final originalBuilder = ErrorWidget.builder;
+      final originalColor = RenderErrorBox.backgroundColor;
+      addTearDown(() {
+        ErrorWidget.builder = originalBuilder;
+        RenderErrorBox.backgroundColor = originalColor;
+      });
+      // Reproduce the release-mode surface seen in the recording, while still
+      // running with assertions so the underlying GetX exception is visible.
+      RenderErrorBox.backgroundColor = const Color(0xF0C0C0C0);
+      ErrorWidget.builder = (_) => ErrorWidget('');
+      final boundary = GlobalKey();
+      Widget page(Widget progress) => MaterialApp(
+        home: RepaintBoundary(
+          key: boundary,
+          child: ColoredBox(
+            color: Colors.black,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 24,
+                  child: progress,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        page(Obx(() => const SizedBox(height: 48))),
+      );
+      expect(tester.takeException().toString(), contains('improper use'));
+      expect(tester.getSize(find.byType(ErrorWidget)), const Size(336, 736));
+      Future<List<int>> pixel() async {
+        final render =
+            boundary.currentContext!.findRenderObject()
+                as RenderRepaintBoundary;
+        final image = await render.toImage();
+        final bytes = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        final offset = (300 * image.width + 180) * 4;
+        final result = List<int>.generate(4, (i) => bytes.getUint8(offset + i));
+        image.dispose();
+        return result;
+      }
+
+      await tester.runAsync(() async {
+        final gray = await pixel();
+        expect(gray.take(3), everyElement(inInclusiveRange(179, 182)));
+      });
+      await tester.pumpWidget(
+        page(
+          FeedProgressRegion(
+            active: false,
+            builder: (_) => const SizedBox.shrink(),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      expect(
+        tester.getSize(find.byType(FeedProgressRegion)),
+        const Size(336, 48),
+      );
+      await tester.runAsync(() async {
+        expect(await pixel(), [0, 0, 0, 255]);
+      });
+    },
+  );
+
+  testWidgets(
+    'real progress bars survive preview, loading, active and return-page builds',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final pages = PageController();
+      addTearDown(pages.dispose);
+      final progress = 10.obs;
+      final duration = 0.obs;
+      final buffered = 0.obs;
+      addTearDown(progress.close);
+      addTearDown(duration.close);
+      addTearDown(buffered.close);
+      var playing = 0;
+      late StateSetter update;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return FeedPager(
+                controller: pages,
+                itemCount: 3,
+                onSettled: (_) {},
+                itemBuilder: (context, index) {
+                  final active = playing == index;
+                  return FeedPage(
+                    content: const ColoredBox(color: Colors.black),
+                    controls: Stack(
+                      children: [
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: 24,
+                          child: FeedProgressRegion(
+                            active: active,
+                            builder: (_) => ProgressBar(
+                              key: ValueKey('progress-$index'),
+                              progress: active ? progress.value : 0,
+                              total: active ? duration.value : 100,
+                              buffered: active ? buffered.value : 0,
+                              progressBarColor: Colors.pink,
+                              baseBarColor: Colors.white24,
+                              bufferedBarColor: Colors.pinkAccent,
+                              thumbColor: Colors.pink,
+                              thumbGlowColor: Colors.pinkAccent,
+                              barHeight: 3.5,
+                              thumbRadius: 7,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      // The adjacent page is built before playback starts. It has no Rx reads.
+      expect(find.byKey(const ValueKey('progress-1')), findsOneWidget);
+      final drag = await tester.startGesture(const Offset(180, 500));
+      await drag.moveBy(const Offset(0, -380));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      await drag.up();
+      await tester.pumpAndSettle();
+      // While the next video loads, both pages display saved progress.
+      update(() => playing = -1);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      update(() => playing = 1);
+      duration.value = 120;
+      buffered.value = 30;
+      await tester.pump();
+      progress.value = 23;
+      await tester.pump();
+      final bar = tester.widget<ProgressBar>(
+        find.byKey(const ValueKey('progress-1')),
+      );
+      expect(bar.progress, 23);
+      expect(bar.total, 120);
+      expect(bar.buffered, 30);
+      expect(tester.takeException(), isNull);
+      update(() => playing = 0);
+      pages.jumpToPage(0);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+    },
+  );
 
   testWidgets(
     'original progress bar activates, seeks in milliseconds and cancels cleanly',

@@ -12,6 +12,7 @@ import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/progress_region.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/common/design_tokens.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -1381,73 +1382,76 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
           left: 12,
           right: 12,
           bottom: safe,
-          child: Obx(() {
-            final total = active
-                ? widget.playerController.duration.value
-                : saved?.duration ?? item.duration;
-            final position = active
-                ? widget.playerController.position.value
-                : saved?.position ?? 0;
-            final controller = widget.playerController;
-            final primary = ColorScheme.of(context).primary;
-            return SizedBox(
-              height: 48,
-              child: ProgressBar(
-                progress: (active ? controller.progress : position).clamp(
-                  0,
-                  total > 0 ? total : 0,
-                ),
-                buffered: active ? controller.buffered.value : 0,
-                total: total > 0 ? total : 0,
-                progressBarColor: primary,
-                baseBarColor: const Color(0x33FFFFFF),
-                bufferedBarColor: primary.withValues(alpha: .4),
-                thumbColor: primary,
-                thumbGlowColor: primary.withAlpha(80),
-                barHeight: 3.5,
-                thumbRadius: 7,
-                thumbGlowRadius: 25,
-                onDragStart: active && total > 0
-                    ? (details) {
-                        feedBack();
-                        controller.onSeekStart(details.seconds);
-                        setState(
-                          () => _seekSeconds = details.seconds.toDouble(),
-                        );
-                      }
-                    : null,
-                onDragUpdate: active && total > 0
-                    ? (details) {
-                        if (!controller.isFileSource &&
-                            controller.showSeekPreview)
-                          controller.updatePreviewIndex(details.seconds);
-                        controller.seekPosition.value = details.seconds;
-                        setState(
-                          () => _seekSeconds = details.seconds.toDouble(),
-                        );
-                      }
-                    : null,
-                onDragEnd: active
-                    ? () {
-                        controller.onSeekEnd();
-                        if (mounted) setState(() => _seekSeconds = null);
-                      }
-                    : null,
-                onSeek: active && total > 0
-                    ? (milliseconds) {
-                        controller
-                          ..position.value = milliseconds ~/ 1000
-                          ..onSeekEnd()
-                          ..seekTo(
-                            Duration(milliseconds: milliseconds),
-                            isSeek: false,
+          child: FeedProgressRegion(
+            active: active,
+            builder: (context) {
+              final total = active
+                  ? widget.playerController.duration.value
+                  : saved?.duration ?? item.duration;
+              final position = active
+                  ? widget.playerController.position.value
+                  : saved?.position ?? 0;
+              final controller = widget.playerController;
+              final primary = ColorScheme.of(context).primary;
+              return SizedBox(
+                height: 48,
+                child: ProgressBar(
+                  progress: (active ? controller.progress : position).clamp(
+                    0,
+                    total > 0 ? total : 0,
+                  ),
+                  buffered: active ? controller.buffered.value : 0,
+                  total: total > 0 ? total : 0,
+                  progressBarColor: primary,
+                  baseBarColor: const Color(0x33FFFFFF),
+                  bufferedBarColor: primary.withValues(alpha: .4),
+                  thumbColor: primary,
+                  thumbGlowColor: primary.withAlpha(80),
+                  barHeight: 3.5,
+                  thumbRadius: 7,
+                  thumbGlowRadius: 25,
+                  onDragStart: active && total > 0
+                      ? (details) {
+                          feedBack();
+                          controller.onSeekStart(details.seconds);
+                          setState(
+                            () => _seekSeconds = details.seconds.toDouble(),
                           );
-                        if (mounted) setState(() => _seekSeconds = null);
-                      }
-                    : null,
-              ),
-            );
-          }),
+                        }
+                      : null,
+                  onDragUpdate: active && total > 0
+                      ? (details) {
+                          if (!controller.isFileSource &&
+                              controller.showSeekPreview)
+                            controller.updatePreviewIndex(details.seconds);
+                          controller.seekPosition.value = details.seconds;
+                          setState(
+                            () => _seekSeconds = details.seconds.toDouble(),
+                          );
+                        }
+                      : null,
+                  onDragEnd: active
+                      ? () {
+                          controller.onSeekEnd();
+                          if (mounted) setState(() => _seekSeconds = null);
+                        }
+                      : null,
+                  onSeek: active && total > 0
+                      ? (milliseconds) {
+                          controller
+                            ..position.value = milliseconds ~/ 1000
+                            ..onSeekEnd()
+                            ..seekTo(
+                              Duration(milliseconds: milliseconds),
+                              isSeek: false,
+                            );
+                          if (mounted) setState(() => _seekSeconds = null);
+                        }
+                      : null,
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
