@@ -118,7 +118,13 @@ void main() {
         page(Obx(() => const SizedBox(height: 48))),
       );
       expect(tester.takeException().toString(), contains('improper use'));
-      expect(tester.getSize(find.byType(ErrorWidget)), const Size(336, 736));
+      // A bottom-positioned child has unbounded height. RenderErrorBox takes
+      // its 100000px fallback, then page clipping makes it cover the screen.
+      expect(tester.getSize(find.byType(ErrorWidget)), const Size(336, 100000));
+      expect(
+        tester.getTopLeft(find.byType(ErrorWidget)),
+        const Offset(12, -99264),
+      );
       Future<List<int>> pixel() async {
         final render =
             boundary.currentContext!.findRenderObject()
@@ -169,9 +175,13 @@ void main() {
       final progress = 10.obs;
       final duration = 0.obs;
       final buffered = 0.obs;
-      addTearDown(progress.close);
-      addTearDown(duration.close);
-      addTearDown(buffered.close);
+      addTearDown(() async {
+        // GetX observers must unsubscribe before their source streams close.
+        await tester.pumpWidget(const SizedBox.shrink());
+        progress.close();
+        duration.close();
+        buffered.close();
+      });
       var playing = 0;
       late StateSetter update;
       await tester.pumpWidget(
@@ -220,11 +230,11 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
-      // The adjacent page is built before playback starts. It has no Rx reads.
-      expect(find.byKey(const ValueKey('progress-1')), findsOneWidget);
+      // Bring the adjacent preview onscreen before activating its playback.
       final drag = await tester.startGesture(const Offset(180, 500));
       await drag.moveBy(const Offset(0, -380));
       await tester.pump();
+      expect(find.byKey(const ValueKey('progress-1')), findsOneWidget);
       expect(tester.takeException(), isNull);
       expect(find.byType(ErrorWidget), findsNothing);
       await drag.up();
