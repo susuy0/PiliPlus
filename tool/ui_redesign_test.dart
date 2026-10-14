@@ -160,6 +160,9 @@ void main() {
       await tester.runAsync(() async {
         expect(await pixel(), [0, 0, 0, 255]);
       });
+      // Flutter checks this global before addTearDown callbacks execute.
+      ErrorWidget.builder = originalBuilder;
+      RenderErrorBox.backgroundColor = originalColor;
     },
   );
 
