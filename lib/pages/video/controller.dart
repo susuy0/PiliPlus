@@ -1,3 +1,5 @@
+import 'package:PiliPlus/pages/video/vertical_feed/media_cache.dart';
+
 import 'dart:async';
 import 'dart:math' show min;
 import 'dart:ui';
@@ -945,6 +947,7 @@ class VideoDetailController extends GetxController
     );
     final audios = response.dash?.audio;
     String? audio;
+    FeedCacheTrack? preloadAudio;
     if (audios != null && audios.isNotEmpty) {
       final ids = audios.map((audio) => audio.id).toList();
       final preferred = plPlayerController.cacheAudioQa;
@@ -954,19 +957,22 @@ class VideoDetailController extends GetxController
       );
       if (!ids.contains(preferred) && ids.any((id) => id > preferred))
         closest = AudioQuality.k192.code;
-      audio = VideoUtils.getCdnUrl(
-        audios
-            .firstWhere(
-              (audio) => audio.id == closest,
-              orElse: () => audios.first,
-            )
-            .playUrls,
-        isAudio: true,
+      final selectedAudio = audios.firstWhere(
+        (audio) => audio.id == closest,
+        orElse: () => audios.first,
+      );
+      audio = VideoUtils.getCdnUrl(selectedAudio.playUrls, isAudio: true);
+      preloadAudio = FeedCacheTrack.fromSegmentBase(
+        audio,
+        selectedAudio.segmentBase,
       );
     }
+    final videoUrl = VideoUtils.getCdnUrl(video.playUrls);
     return NetworkSource(
-      videoSource: VideoUtils.getCdnUrl(video.playUrls),
+      videoSource: videoUrl,
       audioSource: audio,
+      preloadVideo: FeedCacheTrack.fromSegmentBase(videoUrl, video.segmentBase),
+      preloadAudio: preloadAudio,
     );
   }
 

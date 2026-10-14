@@ -1,3 +1,4 @@
+import 'package:PiliPlus/pages/video/vertical_feed/media_cache.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:path/path.dart' as path;
 
@@ -15,7 +16,11 @@ class NetworkSource extends DataSource {
   NetworkSource({
     required super.videoSource,
     required super.audioSource,
+    this.preloadVideo,
+    this.preloadAudio,
   });
+  final FeedCacheTrack? preloadVideo;
+  final FeedCacheTrack? preloadAudio;
 }
 
 class FileSource extends DataSource {

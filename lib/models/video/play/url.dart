@@ -299,7 +299,7 @@ abstract class BaseItem {
     frameRate = json['frameRate'] ?? json['frame_rate'];
     sar = json['sar'];
     startWithSap = json['startWithSap'] ?? json['start_with_sap'];
-    segmentBase = json['segmentBase'] ?? json['segment_base'];
+    segmentBase = json['segmentBase'] ?? json['segment_base'] ?? json['SegmentBase'];
     codecid = json['codecid'];
   }
 

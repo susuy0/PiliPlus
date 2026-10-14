@@ -43,6 +43,7 @@ jobs:
         run: |
           dart tool/check_vertical_feed.dart
           dart tool/check_feed_preload.dart
+          dart tool/check_feed_media_cache.dart
           dart tool/check_author_feed.dart
 
       - name: Analyze source

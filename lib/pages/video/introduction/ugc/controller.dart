@@ -511,8 +511,10 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
         }
       }
 
+      // Do not let a late pause for the old episode stop the next episode.
+      await videoDetailCtr.plPlayerController.pause(isInterrupt: true);
+      if (isClosed) return false;
       videoDetailCtr
-        ..plPlayerController.pause()
         ..makeHeartBeat()
         ..updateMediaListHistory(aid)
         ..onReset(isStein: isStein)

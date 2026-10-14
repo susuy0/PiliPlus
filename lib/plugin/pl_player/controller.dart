@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, Timer, TimeoutException;
+import 'dart:async' show StreamSubscription, Timer;
 import 'dart:convert' show ascii, utf8;
 import 'dart:io' show Platform;
 import 'dart:math' show max, min;
@@ -18,6 +18,8 @@ import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/preloader.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/media_cache.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/playback_commands.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
@@ -73,18 +75,23 @@ typedef PlayCallback = Future<void>? Function();
 typedef PlayOwner = ({String tag, Type type});
 
 class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
+  final _playbackCommands = PlaybackCommands();
   Player? _videoPlayerController;
   VideoController? _videoController;
-  late final _feedPreloader =
-      NextVideoPreloader<({Player player, VideoController video})>(
-        release: (value) => value.player.dispose(),
-      );
-
+  late final _feedCache = FeedMediaCache(
+    userAgent: BrowserUa.pc,
+    referer: HttpString.baseUrl,
+  );
+  late final _feedPreloader = NextVideoPreloader<FeedCachedMedia>(
+    release: _feedCache.release,
+  );
   String? _feedPreloadOwner;
+
   void cancelFeedPreload({String? owner}) {
     if (owner != null && owner != _feedPreloadOwner) return;
     _feedPreloadOwner = null;
     _feedPreloader.cancel();
+    _feedCache.cancelPending();
   }
 
   String _feedSourceKey(NetworkSource source, Volume? volume) {
@@ -99,85 +106,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     required String owner,
   }) {
     _feedPreloadOwner = owner;
-    final key = _feedSourceKey(source, volume);
-    return _feedPreloader.prepare(key, (current) async {
-      Player? player;
-      try {
-        if (!current() || !verticalFeedMode || _playerCount == 0)
-          throw StateError('inactive feed');
-        player = await Player.create(
-          configuration: PlayerConfiguration(
-            logLevel: .error,
-            options: {
-              'volume': '0',
-              'pause': 'yes',
-              'video-sync': Pref.videoSync,
-              if (Pref.autosync != '0') 'autosync': Pref.autosync,
-              if (Platform.isAndroid) 'ao': Pref.audioOutput,
-            },
-          ),
-        );
-        if (!current()) throw StateError('superseded preload');
-        final video = await VideoController.create(
-          player,
-          configuration: VideoControllerConfiguration(
-            enableHardwareAcceleration: hwdec != null,
-            androidAttachSurfaceAfterVideoParameters: false,
-            hwdec: hwdec,
-          ),
-        );
-        if (!current()) throw StateError('superseded preload');
-        player.setMediaHeader(
-          userAgent: BrowserUa.pc,
-          referer: HttpString.baseUrl,
-        );
-        if (Platform.isAndroid) player.setProperty('force-window', 'no');
-        final extras = <String, String>{
-          'cache': 'yes',
-          'cache-secs': '3',
-          'demuxer-readahead-secs': '3',
-          'demuxer-max-bytes': '33554432',
-          'demuxer-max-back-bytes': '0',
-          'demuxer-hysteresis-secs': '1',
-        };
-        audioFilterExtras(volume, map: extras);
-        await player.open(
-          Media(_networkMediaUri(source), extras: extras),
-          play: false,
-        );
-        // Poll also checks cancellation and short-clip EOF when no new buffer
-        // event is emitted. The standby never plays or records viewing history.
-        final deadline = DateTime.now().add(const Duration(seconds: 12));
-        while (!FeedPreloadPolicy.ready(
-          player.state.buffer,
-          player.state.duration,
-          eof: player.getProperty('demuxer-cache-state/eof-cached') == 'yes',
-        )) {
-          if (!current()) throw StateError('superseded preload');
-          if (DateTime.now().isAfter(deadline))
-            throw TimeoutException('next video did not buffer three seconds');
-          await Future<void>.delayed(const Duration(milliseconds: 100));
-        }
-        if (!onlyPlayAudio.value) {
-          await video.waitUntilFirstFrameRendered.timeout(
-            const Duration(seconds: 3),
-          );
-        }
-        if (!current()) throw StateError('superseded preload');
-        return (player: player, video: video);
-      } catch (_) {
-        if (player != null) await player.dispose();
-        rethrow;
-      }
+    final tracks = <FeedCacheTrack>[
+      if (source.preloadAudio != null) source.preloadAudio!,
+      if (!onlyPlayAudio.value || source.preloadAudio == null)
+        if (source.preloadVideo != null) source.preloadVideo!,
+    ];
+    if (tracks.isEmpty ||
+        (!onlyPlayAudio.value && source.preloadVideo == null) ||
+        (source.audioSource?.isNotEmpty == true && source.preloadAudio == null))
+      return Future.value(false);
+    return _feedPreloader.prepare(_feedSourceKey(source, volume), (current) {
+      if (!current() || !verticalFeedMode || _playerCount == 0)
+        throw StateError('inactive feed');
+      return _feedCache.prepare(tracks, current);
     });
-  }
-
-  String _networkMediaUri(NetworkSource source) {
-    final audio = source.audioSource;
-    if (audio == null || audio.isEmpty) return source.videoSource;
-    if (onlyPlayAudio.value) return audio;
-    final video = source.videoSource;
-    return 'edl://!no_chapters;%${video.length}%$video;!new_stream;!no_chapters;%${audio.length}%$audio';
   }
 
   static PlPlayerController? _instance;
@@ -840,7 +782,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       cancelLongPressTimer();
       if (_videoPlayerController != null &&
           _videoPlayerController!.state.playing) {
-        await pause(notify: false);
+        await pause(notify: false, isInterrupt: true);
       }
 
       if (_playerCount == 0) {
@@ -988,48 +930,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _heartDuration = 0;
     danmakuController?.clear();
 
+    // Use the exact same player.open path as ordinary horizontal playback.
+    // Only media bytes may be prepared; never replace the player/controller.
+    var cachedUrls = <String, String>{};
     if (verticalFeedMode && dataSource is NetworkSource) {
       final key = _feedSourceKey(dataSource, volume);
-      final warm = await _feedPreloader.takeWhenReady(key);
-      if (warm != null) {
+      final cached = _feedPreloader.take(key);
+      if (cached != null) {
         _feedPreloadOwner = null;
-        final old = _videoPlayerController;
-        final oldVolume =
-            old?.state.volume ??
-            (PlatformUtils.isMobile
-                ? Pref.playerVolume
-                : this.volume.value * 100);
         try {
-          await warm.player.setVolume(oldVolume);
-          await warm.player.command(['set', 'demuxer-readahead-secs', '1']);
-          for (final entry in buffer.entries) {
-            await warm.player.command(['set', entry.key, entry.value]);
-          }
-          if (warm.player.current.isNotEmpty) {
-            warm.player.current.last.extras?['demuxer-readahead-secs'] = '1';
-            warm.player.current.last.extras?.addAll(buffer);
-          }
-          await setShader(superResolutionType.value, warm.player);
-          if (seekTo != null) await warm.player.seek(seekTo);
-        } catch (_) {
-          await warm.player.dispose();
-          // Keep the current player available for the regular open below.
-          return _createVideoController(dataSource, seekTo, volume);
-        }
-        if (_playerCount == 0) {
-          await warm.player.dispose();
-          return;
-        }
-        _removeListeners();
-        _videoPlayerController = warm.player;
-        _videoController = warm.video;
-        _startListeners(warm.player);
-        try {
-          await old?.dispose();
+          cachedUrls = await _feedCache.activate(cached);
         } catch (_) {}
-        return;
       }
-      if (_feedPreloader.targets(key)) cancelFeedPreload();
+      // Do not wait for a slow preload or compete with foreground buffering.
+      cancelFeedPreload();
     }
 
     var player = _videoPlayerController;
@@ -1058,8 +972,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         ...buffer,
     };
 
-    String video = dataSource.videoSource;
-    if (dataSource.audioSource case final audio? when (audio.isNotEmpty)) {
+    String video = cachedUrls[dataSource.videoSource] ?? dataSource.videoSource;
+    if (dataSource.audioSource case final originalAudio?
+        when (originalAudio.isNotEmpty)) {
+      final audio = cachedUrls[originalAudio] ?? originalAudio;
       if (onlyPlayAudio.value) {
         video = audio;
       } else {
@@ -1077,10 +993,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     assert(!isLive || seekTo == null);
-    await player.open(
-      Media(video, start: seekTo, extras: extras.isEmpty ? null : extras),
-      play: false,
-    );
+    try {
+      await player.open(
+        Media(video, start: seekTo, extras: extras.isEmpty ? null : extras),
+        play: false,
+      );
+    } catch (_) {
+      if (cachedUrls.isEmpty) rethrow;
+      _feedCache.retain({});
+      // A proxy failure uses the original URLs and ordinary open path.
+      return _createVideoController(dataSource, seekTo, volume);
+    }
+    _feedCache.retain(cachedUrls.values.toSet());
   }
 
   Future<void>? refreshPlayer() {
@@ -1089,7 +1013,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     if (_videoPlayerController case final ctr? when (ctr.current.isNotEmpty)) {
       var media = ctr.current.last;
-      if (!isLive) media = media.copyWith(start: ctr.state.position);
+      if (dataSource case final NetworkSource source
+          when _feedCache.owns(media.uri)) {
+        final audio = source.audioSource;
+        var uri = source.videoSource;
+        if (audio?.isNotEmpty == true) {
+          uri = onlyPlayAudio.value
+              ? audio!
+              : 'edl://!no_chapters;%${uri.length}%$uri;!new_stream;!no_chapters;%${audio!.length}%$audio';
+        }
+        media = Media(uri, start: ctr.state.position, extras: media.extras);
+        _feedCache.retain({});
+      } else if (!isLive)
+        media = media.copyWith(start: ctr.state.position);
       return ctr.open(media, play: true);
     }
     return null;
@@ -1109,7 +1045,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     // 自动播放
     if (_autoPlay) {
-      playIfExists();
+      await play();
     }
   }
 
@@ -1241,6 +1177,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         })),
       stream.error.listen((String event) {
+        final media = player.current;
+        if (media.isNotEmpty &&
+            _feedCache.owns(media.last.uri) &&
+            (event.contains('Failed to open') ||
+                event.contains('HTTP error') ||
+                event.contains('ffurl_read') ||
+                event.contains('Can not open'))) {
+          // Retry once with the original CDN URL, not a failed cache route.
+          refreshPlayer();
+          return;
+        }
         if (dataSource is FileSource &&
             event.startsWith("Failed to open file")) {
           return;
@@ -1369,7 +1316,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   /// 播放视频
-  Future<void> play({bool repeat = false, bool hideControls = true}) async {
+  Future<void> play({bool repeat = false, bool hideControls = true}) =>
+      _playbackCommands.run(
+        () => _play(repeat: repeat, hideControls: hideControls),
+      );
+
+  Future<void> _play({required bool repeat, required bool hideControls}) async {
     if (_playerCount == 0) return;
     // 播放时自动隐藏控制条
     controls = !hideControls;
@@ -1378,21 +1330,25 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       await seekTo(Duration.zero, isSeek: false);
     }
 
+    // Activate the iOS audio session before starting the native audio output.
+    await audioSessionHandler?.setActive(true);
+    if (_playerCount == 0) return;
     await _videoPlayerController?.play();
-
-    audioSessionHandler?.setActive(true);
 
     playerStatus = .playing;
   }
 
   /// 暂停播放
-  Future<void> pause({bool notify = true, bool isInterrupt = false}) async {
+  Future<void> pause({bool notify = true, bool isInterrupt = false}) =>
+      _playbackCommands.run(() => _pause(isInterrupt: isInterrupt));
+
+  Future<void> _pause({required bool isInterrupt}) async {
     await _videoPlayerController?.pause();
     playerStatus = .paused;
 
     // 主动暂停时让出音频焦点
     if (!isInterrupt) {
-      audioSessionHandler?.setActive(false);
+      await audioSessionHandler?.setActive(false);
     }
   }
 
@@ -1799,6 +1755,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     _playerCount = 0;
     _feedPreloader.dispose();
+    _feedCache.dispose();
     if (removeSafeArea) {
       showSystemBar();
     }

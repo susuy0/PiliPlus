@@ -167,8 +167,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     final ctr = videoDetailController;
     await ctr.waitForVideoQuery();
     if (!mounted || !_verticalFeedActive.value) return false;
-    await ctr.plPlayerController.pause();
-    if (!mounted || !_verticalFeedActive.value) return false;
+    // The original episode switch owns and awaits the old media's pause.
     ctr.autoPlay = true;
     final changed = await ugcIntroController.onChangeEpisode(
       item.episode,
