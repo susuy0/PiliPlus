@@ -195,7 +195,7 @@ List<SettingsModel> get playSettings => [
     defaultVal: true,
   ),
   NormalModel(
-    title: '下一条视频预加载（3秒）',
+    title: '下一条视频预加载网络',
     leading: const Icon(Icons.downloading_outlined),
     getSubtitle: () =>
         '当前：${const ['关闭', '仅 Wi-Fi / 有线网络', '所有网络'][Pref.storyPreloadMode]}；连续观看时提前准备下一条',
@@ -203,13 +203,57 @@ List<SettingsModel> get playSettings => [
       final mode = await showDialog<int>(
         context: context,
         builder: (context) => SelectDialog<int>(
-          title: '下一条视频预加载（3秒）',
+          title: '下一条视频预加载网络',
           value: Pref.storyPreloadMode,
           values: const [(0, '关闭'), (1, '仅 Wi-Fi / 有线网络'), (2, '所有网络（使用移动流量）')],
         ),
       );
       if (mode != null) {
         await GStorage.setting.put(SettingBoxKey.storyPreloadMode, mode);
+        setState();
+      }
+    },
+  ),
+  NormalModel(
+    title: '下一条视频预加载时长',
+    leading: const Icon(Icons.timelapse_outlined),
+    getSubtitle: () => '当前：${Pref.storyPreloadSeconds}秒；短视频不足该时长时缓存完整片段',
+    onTap: (context, setState) async {
+      var seconds = await showDialog<int>(
+        context: context,
+        builder: (_) => SelectDialog<int>(
+          title: '预加载时长',
+          value: Pref.storyPreloadSeconds,
+          values: const [
+            (3, '3秒（默认）'),
+            (5, '5秒'),
+            (10, '10秒'),
+            (15, '15秒'),
+            (30, '30秒'),
+            (-1, '自定义（1–30秒）'),
+          ],
+        ),
+      );
+      if (seconds == -1 && context.mounted) {
+        final custom = await showDialog<double>(
+          context: context,
+          builder: (_) => SliderDialog(
+            value: Pref.storyPreloadSeconds.toDouble(),
+            title: const Text('自定义预加载时长'),
+            min: 1,
+            max: 30,
+            divisions: 29,
+            suffix: '秒',
+            precise: 0,
+          ),
+        );
+        seconds = custom?.round();
+      }
+      if (seconds != null && seconds > 0) {
+        await GStorage.setting.put(
+          SettingBoxKey.storyPreloadSeconds,
+          seconds.clamp(1, 30),
+        );
         setState();
       }
     },

@@ -45,6 +45,12 @@ class PlayerFocus extends StatelessWidget {
   Widget build(BuildContext context) {
     return Focus(
       autofocus: true,
+      onFocusChange: (focused) {
+        if (!focused) {
+          plPlayerController.cancelLongPressTimer();
+          plPlayerController.setLongPressStatus(false);
+        }
+      },
       onKeyEvent: (node, event) {
         final handled = _handleKey(context, event);
         if (handled || _shouldHandle(event.logicalKey)) {

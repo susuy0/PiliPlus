@@ -483,6 +483,10 @@ abstract final class Pref {
       (_setting.get(SettingBoxKey.storyPreloadMode, defaultValue: 1) as int)
           .clamp(0, 2);
 
+  static int get storyPreloadSeconds =>
+      (_setting.get(SettingBoxKey.storyPreloadSeconds, defaultValue: 3) as int)
+          .clamp(1, 30);
+
   static bool get mainTabBarView =>
       _setting.get(SettingBoxKey.mainTabBarView, defaultValue: false);
 

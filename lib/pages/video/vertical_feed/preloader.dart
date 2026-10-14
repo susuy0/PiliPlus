@@ -4,7 +4,12 @@ import 'dart:async';
 /// buffer notification. A shorter clip is ready when its complete cache exists.
 abstract final class FeedPreloadPolicy {
   static const target = Duration(seconds: 3);
-  static bool ready(Duration buffer, Duration duration, {bool eof = false}) =>
+  static bool ready(
+    Duration buffer,
+    Duration duration, {
+    bool eof = false,
+    Duration target = const Duration(seconds: 3),
+  }) =>
       buffer >= target ||
       (duration > Duration.zero &&
           duration <= target &&

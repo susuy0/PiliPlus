@@ -11,6 +11,7 @@ class FeedActionButton extends StatelessWidget {
     required this.semantics,
     this.onTap,
     this.color = Colors.white,
+    this.iconWidget,
     this.onLongPress,
     this.onStartTriple,
     this.onCancelTriple,
@@ -18,6 +19,7 @@ class FeedActionButton extends StatelessWidget {
     this.compact = false,
   });
   final IconData icon;
+  final Widget? iconWidget;
   final String label;
   final String semantics;
   final VoidCallback? onTap;
@@ -63,14 +65,15 @@ class FeedActionButton extends StatelessWidget {
                         color: AppDesign.playerPrimary,
                       ),
                     ),
-                  Icon(
-                    icon,
-                    size: compact ? 24 : 30,
-                    color: color,
-                    shadows: const [
-                      Shadow(color: Colors.black54, blurRadius: 4),
-                    ],
-                  ),
+                  iconWidget ??
+                      Icon(
+                        icon,
+                        size: compact ? 24 : 30,
+                        color: color,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 4),
+                        ],
+                      ),
                 ],
               ),
             ),

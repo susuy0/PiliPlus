@@ -1,3 +1,8 @@
+import 'package:PiliPlus/pages/shorts/controller.dart';
+import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
+import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/models_new/sponsor_block/segment_item.dart';
+import 'package:media_kit/media_kit.dart' show Player;
 import 'package:PiliPlus/pages/video/vertical_feed/story_layout.dart';
 import 'package:PiliPlus/models/video/presentation.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
@@ -54,6 +59,94 @@ void main() {
     // testWidgets supplies its own default, overriding the CLI timeout.
     binding.defaultTestTimeout = const Timeout(Duration(minutes: 2));
   }
+  test('shorts directly opens one player and resumes the last video', () async {
+    final first = StoryVideoItem(aid: 1, bvid: 'BV1xx411c7mD', cid: 101);
+    final resumed = StoryVideoItem(aid: 2, bvid: 'BV1xx411c7mQ', cid: 102);
+    final source = _ShortsProbe(first)..items.add(first);
+    final gate = source.presentationGate = Completer<void>();
+    var handoffs = 0;
+    final pending = source.openFeed(
+      isSelected: () => true,
+      beforeOpen: () => handoffs++,
+    );
+    await source.openFeed(isSelected: () => true, beforeOpen: () => handoffs++);
+    expect(source.presentations, 1);
+    expect(handoffs, 1);
+    gate.complete();
+    await pending;
+    source.presentationGate = null;
+    source.remember(resumed, 12345);
+    await source.openFeed(isSelected: () => true, beforeOpen: () => handoffs++);
+    expect(source.presented, same(resumed));
+    expect(source.presentations, 2);
+    source.onClose();
+  });
+  test('leaving shorts during discovery never opens a late player', () async {
+    final source = _ShortsProbe(
+      StoryVideoItem(aid: 1, bvid: 'BV1xx411c7mD', cid: 101),
+    );
+    final gate = source.loadingGate = Completer<void>();
+    var selected = true, handedOff = false;
+    final pending = source.openFeed(
+      isSelected: () => selected,
+      beforeOpen: () => handedOff = true,
+    );
+    selected = false;
+    gate.complete();
+    await pending;
+    expect(source.presentations, 0);
+    expect(handedOff, isFalse);
+    source.onClose();
+  });
+  test(
+    'late old-video skip responses cannot append to the new video',
+    () async {
+      final source = _BlockProbe();
+      final old = source.querySponsorBlock(bvid: 'old', cid: 1);
+      final newer = source.querySponsorBlock(bvid: 'new', cid: 2);
+      source.requests[2]!.complete(
+        Success([
+          SegmentItemModel(
+            cid: '2',
+            category: 'sponsor',
+            segment: [1000, 2000],
+            uuid: 'new',
+            videoDuration: 30000,
+          ),
+        ]),
+      );
+      await newer;
+      expect(source.segmentProgressList.length, 1);
+      source.requests[1]!.complete(
+        Success([
+          SegmentItemModel(
+            cid: '1',
+            category: 'sponsor',
+            segment: [5000, 10000],
+            uuid: 'old',
+            videoDuration: 30000,
+          ),
+        ]),
+      );
+      await old;
+      expect(source.segmentProgressList.length, 1);
+      source.onClose();
+    },
+  );
+  test('out-of-range skip segments never issue a seek to the ending', () async {
+    final source = _BlockProbe();
+    await source.handleSBData([
+      SegmentItemModel(
+        category: 'sponsor',
+        segment: [1000, 45000],
+        uuid: 'invalid',
+        videoDuration: 45000,
+      ),
+    ]);
+    expect(source.segmentProgressList, isEmpty);
+    expect(source.seeks, isEmpty);
+    source.onClose();
+  });
   test('comments resume only playback paused by the panel', () {
     final policy = PanelPlaybackPolicy();
     expect(
@@ -1538,4 +1631,66 @@ class _LifetimeProbeState extends State<_LifetimeProbe> {
 
   @override
   Widget build(BuildContext context) => const ColoredBox(color: Colors.blue);
+}
+
+class _ShortsProbe extends ShortsController {
+  _ShortsProbe(this.seed);
+  final StoryVideoItem seed;
+  Completer<void>? loadingGate, presentationGate;
+  int presentations = 0;
+  StoryVideoItem? presented;
+  @override
+  Future<void> onRefresh() async {
+    await loadingGate?.future;
+    items.assignAll([seed]);
+  }
+
+  @override
+  Future<void> presentFeed(StoryVideoItem item) async {
+    presentations++;
+    presented = item;
+    await presentationGate?.future;
+  }
+}
+
+class _BlockPreferences with BlockConfigMixin {
+  @override
+  final enableList = {'sponsor'};
+}
+
+class _BlockProbe extends GetxController with BlockMixin {
+  final _config = _BlockPreferences();
+  final requests = <int, Completer<LoadingState<List<SegmentItemModel>>>>{};
+  final seeks = <Duration>[];
+  @override
+  BlockConfigMixin get blockConfig => _config;
+  @override
+  Player? get player => null;
+  @override
+  bool get autoPlay => false;
+  @override
+  int get timeLength => 30000;
+  @override
+  bool get preInitPlayer => false;
+  @override
+  int get currPosInMilliseconds => 0;
+  @override
+  bool get isUgc => true;
+  @override
+  Future<void> seekTo(Duration position, {required bool isSeek}) async {
+    seeks.add(position);
+  }
+
+  @override
+  Widget buildItem(Object item, Animation<double> animation) =>
+      const SizedBox.shrink();
+  @override
+  Future<LoadingState<List<SegmentItemModel>>> requestBlockSegments({
+    required String bvid,
+    required int cid,
+  }) {
+    final pending = Completer<LoadingState<List<SegmentItemModel>>>();
+    requests[cid] = pending;
+    return pending.future;
+  }
 }

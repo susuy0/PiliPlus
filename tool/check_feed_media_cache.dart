@@ -178,6 +178,62 @@ Future<void> main() async {
     },
   );
   await run(
+    'requested preload duration selects complete media fragments',
+    () async {
+      final bytes = movie(count: 20);
+      final header = bytes.sublist(0, headEnd(bytes) + 1);
+      for (final seconds in [1, 3, 5, 10, 15, 30]) {
+        final plan = FeedPrefixPlan.parse(
+          header,
+          target: Duration(seconds: seconds),
+        );
+        check(
+          plan.duration.inSeconds >= seconds &&
+              plan.duration.inSeconds <= seconds + 1,
+          'duration setting not used: $seconds',
+        );
+      }
+      final short = movie(count: 2);
+      final plan = FeedPrefixPlan.parse(
+        short.sublist(0, headEnd(short) + 1),
+        target: const Duration(seconds: 30),
+      );
+      check(
+        plan.duration == const Duration(seconds: 4),
+        'short clip incomplete',
+      );
+    },
+  );
+  await run(
+    'configured duration reaches real range-cache preparation',
+    () async {
+      final bytes = movie(count: 20, fragmentBytes: 50000);
+      final origin = await Origin.create(bytes);
+      final cache = FeedMediaCache(
+        userAgent: 'test-player',
+        referer: 'https://www.bilibili.com',
+      );
+      try {
+        final warm = await cache.prepare(
+          [FeedCacheTrack(url: origin.url, indexEnd: headEnd(bytes))],
+          () => true,
+          target: const Duration(seconds: 15),
+        );
+        check(
+          warm.duration == const Duration(seconds: 16),
+          'configured target lost during preparation',
+        );
+        check(
+          warm.byteCount > FeedMediaCache.startupBytes,
+          'only startup packet cached',
+        );
+      } finally {
+        await cache.dispose();
+        await origin.close();
+      }
+    },
+  );
+  await run(
     'startup reads and MP4 footer probes do not wait for the uncached CDN',
     () async {
       for (final spelling in ['indexRange', 'index_range', 'IndexRange']) {

@@ -24,7 +24,7 @@ class FeedStoryLayout extends StatelessWidget {
     builder: (context, box) {
       final top = math.min(topInset, box.maxHeight * .25);
       final bottom = math.min(bottomInset, box.maxHeight * .12);
-      final footerHeight = math.min(78.0, box.maxHeight * .20);
+      final footerHeight = math.min(64.0, box.maxHeight * .20);
       return Material(
         color: Colors.black,
         child: Padding(

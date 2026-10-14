@@ -103,6 +103,7 @@ abstract final class SettingBoxKey {
       superResolutionType = 'superResolutionType',
       preInitPlayer = 'preInitPlayer',
       storyPreloadMode = 'storyPreloadMode',
+      storyPreloadSeconds = 'storyPreloadSeconds',
       mainTabBarView = 'mainTabBarView',
       searchSuggestion = 'searchSuggestion',
       showDecorate = 'showDynDecorate',

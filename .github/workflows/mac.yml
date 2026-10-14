@@ -58,6 +58,7 @@ jobs:
           dart tool/check_vertical_feed.dart
           dart tool/check_feed_preload.dart
           dart tool/check_feed_media_cache.dart
+          dart tool/check_playback_sessions.dart
           dart tool/check_author_feed.dart
           flutter test --no-pub --timeout 2m --reporter expanded tool/ui_redesign_test.dart
 

@@ -25,6 +25,8 @@ import 'package:PiliPlus/http/member.dart';
 import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/author_source.dart';
 import 'package:PiliPlus/models/video/story.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/video_geometry.dart';
+import 'package:PiliPlus/pages/shorts/controller.dart';
 import 'package:PiliPlus/models_new/pgc/pgc_info_model/result.dart';
 import 'package:PiliPlus/models_new/video/video_detail/episode.dart' as ugc;
 import 'package:PiliPlus/models_new/video/video_detail/page.dart';
@@ -113,13 +115,22 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   bool _leavingFeed = false;
   StoryVideoItem? _feedSeed;
   StoryPageLoader? _initialAuthorLoader;
-  late final Owner? _initialAuthor = Get.arguments['storyAuthor'] as Owner?;
-  final _storySessionId = const Uuid().v4().replaceAll('-', '');
+  final Owner? _initialAuthor = Get.arguments['storyAuthor'] as Owner?;
+  final bool _forceStory = Get.arguments['storyFeed'] == true;
+  final bool _storyDiscovery = Get.arguments['storyDiscovery'] == true;
+  final StoryVideoItem? _storyInitialSeed =
+      Get.arguments['storySeed'] as StoryVideoItem?;
+  final List<StoryVideoItem>? _storyInitialItems =
+      Get.arguments['storyInitialItems'] as List<StoryVideoItem>?;
+  int _lastStoryPositionMs = 0;
+  final _storySessionId =
+      Get.arguments['storySessionId'] as String? ??
+      const Uuid().v4().replaceAll('-', '');
 
   void _maybeEnterVerticalFeed(bool vertical) {
-    if ((!vertical && Get.arguments['storyFeed'] != true) ||
+    if ((!vertical && !_forceStory) ||
         _verticalFeedAttempted ||
-        (!Pref.enableVerticalStory && Get.arguments['storyFeed'] != true) ||
+        (!Pref.enableVerticalStory && !_forceStory) ||
         !(PlatformUtils.isMobile || PlatformUtils.isDesktop) ||
         !videoDetailController.isUgc ||
         videoDetailController.isFileSource ||
@@ -128,13 +139,20 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     }
     _verticalFeedAttempted = true;
     final detail = ugcIntroController.videoDetail.value;
-    _feedSeed = StoryVideoItem(
-      aid: videoDetailController.aid,
-      bvid: videoDetailController.bvid,
-      cid: videoDetailController.cid.value,
-      title: detail.title ?? Get.arguments['title'],
-      cover: videoDetailController.cover.value,
-    )..owner = detail.owner ?? _initialAuthor ?? Owner();
+    _feedSeed =
+        _storyInitialSeed ??
+              StoryVideoItem(
+                aid: videoDetailController.aid,
+                bvid: videoDetailController.bvid,
+                cid: videoDetailController.cid.value,
+                title: detail.title ?? Get.arguments['title'],
+                cover: videoDetailController.cover.value,
+              )
+          ..owner =
+              detail.owner ??
+              _initialAuthor ??
+              _storyInitialSeed?.owner ??
+              Owner();
     videoDetailController
       ..autoPlay = true
       ..plPlayerController.verticalFeedMode = true
@@ -210,10 +228,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
             page,
           );
         }
+        final discovery = _storyDiscovery;
+        final initial = _storyInitialItems;
+        if (discovery && page == 1 && initial != null) return initial;
         final result = await VideoHttp.storyFeed(
-          aid: seed.aid!,
-          bvid: seed.bvid!,
-          cid: seed.cid!,
+          aid: discovery ? 0 : seed.aid!,
+          bvid: discovery ? '' : seed.bvid!,
+          cid: discovery ? 0 : seed.cid!,
           page: page,
           sessionId: _storySessionId,
         );
@@ -409,6 +430,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   }
 
   void positionListener(Duration position) {
+    if (_storyDiscovery && isShowing)
+      _lastStoryPositionMs = position.inMilliseconds;
     videoDetailController.playedTime = position;
   }
 
@@ -569,6 +592,20 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   @override
   void dispose() {
+    if (_storyDiscovery && Get.isRegistered<ShortsController>()) {
+      final detail = ugcIntroController.videoDetail.value;
+      final item = StoryVideoItem(
+        aid: videoDetailController.aid,
+        bvid: videoDetailController.bvid,
+        cid: videoDetailController.cid.value,
+        title: detail.title,
+        cover: videoDetailController.cover.value,
+      )..owner = detail.owner ?? Owner();
+      Get.find<ShortsController>().remember(
+        item,
+        _lastStoryPositionMs,
+      );
+    }
     _verticalSubscription?.cancel();
     _verticalFeedActive.close();
     videoDetailController.plPlayerController.verticalFeedMode = false;
@@ -1398,6 +1435,29 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           ? 44.0
           : 4.0,
     );
+    final player = videoDetailController.plPlayerController;
+    final inlineFeed = _verticalFeedActive.value && !player.feedCinemaMode;
+    final fitted = feedVideoBounds(
+      width,
+      height,
+      mediaWidth:
+          (player.width ?? player.videoPlayerController?.state.width ?? 0)
+              .toDouble(),
+      mediaHeight:
+          (player.height ?? player.videoPlayerController?.state.height ?? 0)
+              .toDouble(),
+    );
+    final dmRect = inlineFeed
+        ? Rect.fromLTWH(
+            fitted.left,
+            max(fitted.top + 4, danmakuTop),
+            fitted.width,
+            max(
+              0,
+              fitted.top + fitted.height - max(fitted.top + 4, danmakuTop),
+            ),
+          )
+        : Rect.fromLTWH(0, danmakuTop, width, max(0, height - danmakuTop));
     return popScope(
       key: videoDetailController.videoPlayerKey,
       canPop:
@@ -1428,7 +1488,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                 verticalFeedMode:
                     _verticalFeedActive.value &&
                     !plPlayerController!.feedCinemaMode,
-                danmakuTopInset: danmakuTop,
+                danmakuTopInset: dmRect.top,
+                danmakuRect: dmRect,
                 videoDetailController: videoDetailController,
                 introController: introController,
                 headerControl: HeaderControl(
@@ -1438,7 +1499,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                   videoDetailCtr: videoDetailController,
                   heroTag: heroTag,
                 ),
-                danmuWidget: (isPipMode && pipNoDanmaku) || height <= danmakuTop
+                danmuWidget: (isPipMode && pipNoDanmaku) || dmRect.height <= 0
                     ? null
                     : Obx(
                         () => PlDanmaku(
@@ -1448,7 +1509,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                           playerController: plPlayerController!,
                           isFullScreen: plPlayerController!.isFullScreen.value,
                           isFileSource: videoDetailController.isFileSource,
-                          size: Size(width, max(0, height - danmakuTop)),
+                          size: dmRect.size,
                         ),
                       ),
                 showEpisodes: showEpisodes,

@@ -37,6 +37,9 @@ mixin BlockConfigMixin {
 
 mixin BlockMixin on GetxController {
   int? _lastBlockPos;
+  int _blockGeneration = 0;
+  final _blockOwners = Expando<int>();
+  StreamSubscription<bool>? _awaitBlockPlaying;
   BlockConfigMixin get blockConfig;
   StreamSubscription<Duration>? _blockListener;
   StreamSubscription<Duration>? get blockListener => _blockListener;
@@ -59,16 +62,26 @@ mixin BlockMixin on GetxController {
   bool get isFileSource => false;
   late final isBlock = isUgc || !blockConfig.enablePgcSkip;
 
+  Future<LoadingState<List<SegmentItemModel>>> requestBlockSegments({
+    required String bvid,
+    required int cid,
+  }) => SponsorBlock.getSkipSegments(bvid: bvid, cid: cid);
+
   Future<void> querySponsorBlock({
     required String bvid,
     required int cid,
   }) async {
     resetBlock();
-
-    final result = await SponsorBlock.getSkipSegments(bvid: bvid, cid: cid);
+    final generation = _blockGeneration;
+    final result = await requestBlockSegments(bvid: bvid, cid: cid);
+    if (isClosed || generation != _blockGeneration) return;
     switch (result) {
       case Success<List<SegmentItemModel>>(:final response):
-        handleSBData(response);
+        await handleSBData(
+          response
+              .where((item) => item.cid == null || item.cid == cid.toString())
+              .toList(),
+        );
       case Error(:final code) when code != 404:
         if (kDebugMode) {
           result.toast();
@@ -80,8 +93,10 @@ mixin BlockMixin on GetxController {
   void initSkip() {
     if (isClosed) return;
     if (_segmentList.isNotEmpty) {
+      final generation = _blockGeneration;
       _blockListener?.cancel();
       _blockListener = player?.stream.position.listen((position) {
+        if (isClosed || generation != _blockGeneration) return;
         int currentPos = position.inSeconds;
         if (currentPos != _lastBlockPos) {
           _lastBlockPos = currentPos;
@@ -118,18 +133,25 @@ mixin BlockMixin on GetxController {
 
   Future<void> handleSBData(List<SegmentItemModel> list) async {
     if (isClosed) return;
+    final generation = _blockGeneration;
 
     if (list.isNotEmpty) {
       try {
         Future<void>? future;
-        final duration = list.first.videoDuration ?? timeLength!;
+        final duration = timeLength != null && timeLength! > 0
+            ? timeLength!
+            : list.first.videoDuration ?? 0;
+        if (duration <= 0) return;
         // segmentList
         _segmentList.addAll(
           list
               .where(
                 (item) =>
                     blockConfig.enableList.contains(item.category) &&
-                    item.segment[1] >= item.segment[0],
+                    item.segment.length == 2 &&
+                    item.segment[0] >= 0 &&
+                    item.segment[1] >= item.segment[0] &&
+                    item.segment[1] <= duration,
               )
               .map(
                 (item) {
@@ -137,6 +159,7 @@ mixin BlockMixin on GetxController {
                     item,
                     isBlock ? blockConfig : null,
                   );
+                  _blockOwners[segmentModel] = generation;
                   if (segmentModel.segment == const (0, 0)) {
                     videoLabel?.value +=
                         '${videoLabel!.value.isNotEmpty ? '/' : ''}${segmentModel.segmentType.title}';
@@ -155,13 +178,18 @@ mixin BlockMixin on GetxController {
                           if (!isFileSource && player!.state.playing) {
                             future = onSkip(segmentModel);
                           } else {
-                            player!.stream.playing.firstWhere((e) {
-                              if (e) {
-                                future = onSkip(segmentModel);
-                                return true;
+                            _awaitBlockPlaying?.cancel();
+                            _awaitBlockPlaying = player!.stream.playing.listen((
+                              playing,
+                            ) {
+                              if (isClosed || generation != _blockGeneration)
+                                return;
+                              if (playing) {
+                                _awaitBlockPlaying?.cancel();
+                                _awaitBlockPlaying = null;
+                                onSkip(segmentModel);
                               }
-                              return false;
-                            }, orElse: () => false);
+                            });
                           }
                           break;
                         case SkipType.skipManually:
@@ -193,7 +221,7 @@ mixin BlockMixin on GetxController {
 
         if (_blockListener == null && (autoPlay || preInitPlayer)) {
           await future;
-          initSkip();
+          if (!isClosed && generation == _blockGeneration) initSkip();
         }
       } catch (e) {
         if (kDebugMode) debugPrint('failed to parse sponsorblock: $e');
@@ -257,11 +285,16 @@ mixin BlockMixin on GetxController {
     bool isSkip = true,
     bool isSeek = true,
   }) async {
+    final generation = _blockGeneration;
+    if (isClosed || _blockOwners[item] != generation) return;
+    final length = timeLength;
+    if (length != null && length > 0 && item.segment.$2 > length) return;
     try {
       await seekTo(
         Duration(milliseconds: item.segment.$2),
         isSeek: isSeek,
       );
+      if (isClosed || generation != _blockGeneration) return;
       if (isSkip) {
         _skipToast(item);
       } else {
@@ -472,6 +505,9 @@ mixin BlockMixin on GetxController {
   }
 
   void resetBlock() {
+    _blockGeneration++;
+    _awaitBlockPlaying?.cancel();
+    _awaitBlockPlaying = null;
     cancelBlockListener();
     _lastBlockPos = null;
     videoLabel?.value = '';

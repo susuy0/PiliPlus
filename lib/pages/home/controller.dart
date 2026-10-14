@@ -6,6 +6,8 @@ import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/models/common/home_tab_type.dart';
 import 'package:PiliPlus/pages/common/common_controller.dart';
 import 'package:PiliPlus/pages/main/controller.dart';
+import 'package:PiliPlus/pages/shorts/controller.dart';
+import 'package:PiliPlus/utils/extension/get_ext.dart';
 import 'package:PiliPlus/services/account_service.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -19,6 +21,36 @@ class HomeController extends GetxController
     with GetSingleTickerProviderStateMixin, ScrollOrRefreshMixin {
   late List<HomeTabType> tabs;
   late TabController tabController;
+  int _previousTab = 0;
+  bool _shortsOpening = false;
+
+  bool get _shortsSelected {
+    final main = Get.find<MainController>();
+    return tabs[tabController.index] == HomeTabType.shorts &&
+        main.navigationBars[main.selectedIndex.value].name == 'home';
+  }
+
+  void _onTabChanged() {
+    if (tabs[tabController.index] != HomeTabType.shorts) {
+      _previousTab = tabController.index;
+    } else if (!tabController.indexIsChanging) {
+      openShorts();
+    }
+  }
+
+  Future<void> openShorts() async {
+    if (_shortsOpening || isClosed || !_shortsSelected) return;
+    _shortsOpening = true;
+    try {
+      final shorts = Get.putOrFind(ShortsController.new);
+      await shorts.openFeed(
+        isSelected: () => !isClosed && _shortsSelected,
+        beforeOpen: () => tabController.index = _previousTab,
+      );
+    } finally {
+      _shortsOpening = false;
+    }
+  }
 
   RxBool? showTopBar;
   late final bool hideTopBar;
@@ -103,6 +135,8 @@ class HomeController extends GetxController
       length: this.tabs.length,
       vsync: this,
     );
+    _previousTab = tabController.index;
+    tabController.addListener(_onTabChanged);
   }
 
   @override

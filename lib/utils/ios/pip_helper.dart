@@ -82,6 +82,17 @@ abstract final class IOSPipHelper {
     });
   }
 
+  /// Native texture notifications, independent of playback time or image content.
+  static Future<int?> frameSerial(int textureId) async {
+    try {
+      return await _channel
+          .invokeMethod<int>('frameSerial', {'textureId': textureId})
+          .timeout(const Duration(seconds: 1));
+    } catch (_) {
+      return null;
+    }
+  }
+
   static void update(Map<String, Object> state) {
     _channel.invokeMethod('update', state);
   }

@@ -24,8 +24,12 @@ class FeedPrefixPlan {
   final int end;
   final Duration duration;
 
-  /// ISO BMFF sidx: include complete initial media fragments covering >=3s.
-  static FeedPrefixPlan parse(Uint8List bytes) {
+  /// ISO BMFF sidx: include complete initial media fragments covering the requested duration.
+  static FeedPrefixPlan parse(
+    Uint8List bytes, {
+    Duration target = const Duration(seconds: 3),
+  }) {
+    if (target <= Duration.zero) throw ArgumentError.value(target, 'target');
     final data = ByteData.sublistView(bytes);
     var box = 0;
     while (box + 8 <= bytes.length) {
@@ -66,7 +70,8 @@ class FeedPrefixPlan {
           }
           end += length;
           ticks += duration;
-          if (ticks >= timescale * 3 || i == count - 1) {
+          if (ticks * 1000000 >= timescale * target.inMicroseconds ||
+              i == count - 1) {
             return FeedPrefixPlan(
               end,
               Duration(microseconds: ticks * 1000000 ~/ timescale),
@@ -106,6 +111,9 @@ class FeedMediaCache {
   final String userAgent;
   final String referer;
   static const maxBytes = 32 * 1024 * 1024;
+  // Longer requests may hold more complete fragments, with a hard per-prefix cap.
+  static int byteBudget(Duration target) =>
+      max(maxBytes, min(96 * 1024 * 1024, target.inSeconds * 4 * 1024 * 1024));
   // A demuxer's initial AVIO read can exceed three seconds of low-bitrate
   // audio/video. Cache enough bytes for that read as well as complete >=3s
   // fragments, otherwise even the first frame waits for the remote tail.
@@ -124,24 +132,26 @@ class FeedMediaCache {
 
   Future<FeedCachedMedia> prepare(
     List<FeedCacheTrack> tracks,
-    bool Function() current,
-  ) async {
+    bool Function() current, {
+    Duration target = const Duration(seconds: 3),
+  }) async {
     if (_closed || tracks.isEmpty || !current())
       throw StateError('inactive preload');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     _warmClients.add(client);
     final prefixes = <_Prefix>[];
     var used = 0;
+    final budget = byteBudget(target);
     try {
       // Audio first makes the shared byte budget deterministic.
       for (final track in tracks) {
         if (!current() || _closed) throw StateError('cancelled preload');
         final head = await _read(client, track.url, 0, track.indexEnd, current);
-        final plan = FeedPrefixPlan.parse(head.bytes);
+        final plan = FeedPrefixPlan.parse(head.bytes, target: target);
         final end = min(head.total - 1, max(plan.end, startupBytes - 1));
         final footerStart = max(end + 1, head.total - footerBytes);
         if (plan.end >= head.total ||
-            end + 1 + head.total - footerStart > maxBytes - used) {
+            end + 1 + head.total - footerStart > budget - used) {
           throw const FormatException('media prefix outside cache budget');
         }
         final tail = end > track.indexEnd

@@ -85,6 +85,12 @@ final class PipPlugin: NSObject, FlutterPlugin {
         session.start()
       }
       result(nil)
+    case "frameSerial":
+      guard let textureId = (args["textureId"] as? NSNumber)?.int64Value else {
+        result(nil)
+        return
+      }
+      result(TextureTracker.frameSerial(for: textureId))
     case "update":
       session?.update(args)
       result(nil)
@@ -607,6 +613,14 @@ private enum TextureTracker {
 
   private static var textures = [Int64: WeakTexture]()
   private static var installed = false
+  private static var frameCounts = [Int64: Int64]()
+  private static let frameLock = NSLock()
+
+  static func frameSerial(for textureId: Int64) -> Int64? {
+    frameLock.lock()
+    defer { frameLock.unlock() }
+    return frameCounts[textureId]
+  }
 
   static var onFrameAvailable: ((Int64) -> Void)?
 
@@ -627,8 +641,26 @@ private enum TextureTracker {
         if let texture = texture as? FlutterTexture {
           Self.textures = Self.textures.filter { $0.value.value != nil }
           Self.textures[textureId] = WeakTexture(texture)
+          Self.frameLock.lock()
+          Self.frameCounts = Self.frameCounts.filter { Self.textures[$0.key] != nil }
+          Self.frameCounts[textureId] = 0
+          Self.frameLock.unlock()
         }
         return textureId
+      }
+      return unsafeBitCast(block, to: AnyObject.self)
+    }
+
+    let unregisterSelector = NSSelectorFromString("unregisterTexture:")
+    hook(cls, unregisterSelector) { original in
+      typealias Function = @convention(c) (AnyObject, Selector, Int64) -> Void
+      let function = unsafeBitCast(original, to: Function.self)
+      let block: @convention(block) (AnyObject, Int64) -> Void = { this, textureId in
+        Self.textures.removeValue(forKey: textureId)
+        Self.frameLock.lock()
+        Self.frameCounts.removeValue(forKey: textureId)
+        Self.frameLock.unlock()
+        function(this, unregisterSelector, textureId)
       }
       return unsafeBitCast(block, to: AnyObject.self)
     }
@@ -639,6 +671,9 @@ private enum TextureTracker {
       let function = unsafeBitCast(original, to: Function.self)
       let block: @convention(block) (AnyObject, Int64) -> Void = { this, textureId in
         function(this, frameAvailableSelector, textureId)
+        Self.frameLock.lock()
+        if let count = Self.frameCounts[textureId] { Self.frameCounts[textureId] = count &+ 1 }
+        Self.frameLock.unlock()
         Self.onFrameAvailable?(textureId)
       }
       return unsafeBitCast(block, to: AnyObject.self)

@@ -96,6 +96,7 @@ class PLVideoPlayer extends StatefulWidget {
     this.bottomControl,
     this.danmuWidget,
     this.danmakuTopInset = 4,
+    this.danmakuRect,
     this.showEpisodes,
     this.showViewPoints,
     this.fill = Colors.black,
@@ -113,6 +114,7 @@ class PLVideoPlayer extends StatefulWidget {
   final Widget? bottomControl;
   final Widget? danmuWidget;
   final double danmakuTopInset;
+  final Rect? danmakuRect;
   final void Function([
     int?,
     UgcSeason?,
@@ -305,6 +307,11 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      plPlayerController.cancelPendingSeek();
+      plPlayerController.setLongPressStatus(false);
+      plPlayerController.cancelLongPressTimer();
+    }
     // Keep playing in the PiP window.
     if (Platform.isIOS && IOSPipHelper.isActive) return;
     if (!plPlayerController.continuePlayInBackground.value) {
@@ -348,6 +355,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   @override
   void dispose() {
+    plPlayerController.cancelPendingSeek();
+    plPlayerController.setLongPressStatus(false);
+    plPlayerController.cancelLongPressTimer();
     _storyHeartTimer?.cancel();
     removeObserverMobile(this);
     _danmakuListener?.cancel();
@@ -866,6 +876,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   }
 
   void _onPanStart(ScaleStartDetails details) {
+    plPlayerController.cancelPendingSeek();
     _gestureType = null;
     _initialFocalPoint = details.localFocalPoint;
   }
@@ -913,6 +924,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   }
 
   void _onPanUpdate(ScaleUpdateDetails details) {
+    if (plPlayerController.longPressStatus.value || _initialFocalPoint == null)
+      return;
     if (_gestureType == null) {
       final cumulativeDelta = details.localFocalPoint - _initialFocalPoint!;
       if (cumulativeDelta.distanceSquared < 1) return;
@@ -1041,8 +1054,12 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   }
 
   void _onPanEnd(ScaleEndDetails details) {
-    if (_gestureType == .horizontal) {
+    if (_gestureType == .horizontal &&
+        details.pointerCount == 0 &&
+        !plPlayerController.longPressStatus.value) {
       _onHorizontalDragEnd();
+    } else {
+      plPlayerController.cancelPendingSeek();
     }
     _initialFocalPoint = null;
     _gestureType = null;
@@ -1087,8 +1104,16 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   void _onTapDown(TapDownDetails details) {
     final ctr = plPlayerController.danmakuController;
     if (ctr != null) {
-      final pos = details.localPosition - Offset(0, widget.danmakuTopInset);
-      if (pos.dy < 0 || pos.dy > maxHeight - widget.danmakuTopInset) {
+      final bounds =
+          widget.danmakuRect ??
+          Rect.fromLTWH(
+            0,
+            widget.danmakuTopInset,
+            maxWidth,
+            maxHeight - widget.danmakuTopInset,
+          );
+      final pos = details.localPosition - bounds.topLeft;
+      if (!bounds.contains(details.localPosition)) {
         _removeDmAction();
         return;
       }
@@ -1102,7 +1127,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
             return;
           }
           _suspendedDm = item..suspend = true;
-          this.dy = dy + widget.danmakuTopInset;
+          this.dy = dy + bounds.top;
         }
       } else {
         _suspendedDm?.suspend = false;
@@ -1206,6 +1231,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   }
 
   void _onPointerUp(PointerUpEvent event) {
+    plPlayerController.setLongPressStatus(false);
     final pending = _pendingFullScreenToggle;
     if (pending == null || event.buttons != 0) {
       return;
@@ -1224,6 +1250,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   void _onPointerCancel(PointerCancelEvent event) {
     _pendingFullScreenToggle = null;
+    _gestureType = null;
+    _initialFocalPoint = null;
+    plPlayerController.cancelPendingSeek();
+    plPlayerController.setLongPressStatus(false);
   }
 
   void _onPointerPanZoomUpdate(PointerPanZoomUpdateEvent event) {
@@ -1303,8 +1333,15 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         _videoWidget,
 
         if (widget.danmuWidget case final danmaku?)
-          Positioned.fill(
-            top: widget.danmakuTopInset,
+          Positioned.fromRect(
+            rect:
+                widget.danmakuRect ??
+                Rect.fromLTWH(
+                  0,
+                  widget.danmakuTopInset,
+                  maxWidth,
+                  maxHeight - widget.danmakuTopInset,
+                ),
             child: ClipRect(child: danmaku),
           ),
 
@@ -1669,8 +1706,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
               : const SizedBox.shrink(),
         ),
 
-        /// 进度条 live模式下禁用
-        if (!isLive)
+        /// The feed footer owns the original progress bar and trend chart.
+        if (!isLive && !widget.verticalFeedMode)
           Positioned(
             bottom: -2.2,
             left: 0,

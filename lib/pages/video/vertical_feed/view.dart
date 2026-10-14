@@ -33,6 +33,7 @@ import 'package:PiliPlus/models/model_owner.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/controller.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/view/view.dart' show buildDmChart;
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:get/get.dart';
@@ -97,6 +98,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   Timer? _preloadTimer;
   StreamSubscription<List<ConnectivityResult>>? _preloadNetwork;
   int? _preloadAid;
+  int _preloadSeconds = Pref.storyPreloadSeconds;
   DateTime _preloadExpires = DateTime.fromMillisecondsSinceEpoch(0);
   bool _warming = false;
   bool _foreground = true;
@@ -343,6 +345,11 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   void didHaveMemoryPressure() => _stopPreload();
 
   Future<void> _preloadNext() async {
+    if (_preloadSeconds != Pref.storyPreloadSeconds) {
+      _preloadSeconds = Pref.storyPreloadSeconds;
+      _stopPreload();
+      _preloadRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
+    }
     if (Pref.storyPreloadMode == 0) {
       if (_preloadAid != null || _warming) _stopPreload();
       return;
@@ -1272,6 +1279,27 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                     FontAwesomeIcons.b,
                     NumUtils.numFormat(stat?.coin ?? item.storyStat?.coin),
                     ready ? intro.actionCoinVideo : null,
+                    iconWidget: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          width: 2,
+                          color: ready && intro.coinNum.value > 0
+                              ? AppDesign.like
+                              : Colors.white,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        FontAwesomeIcons.b,
+                        size: 17,
+                        color: ready && intro.coinNum.value > 0
+                            ? AppDesign.like
+                            : Colors.white,
+                      ),
+                    ),
                     color: ready && intro.coinNum.value > 0
                         ? AppDesign.like
                         : Colors.white,
@@ -1549,55 +1577,71 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     padding: const EdgeInsets.symmetric(horizontal: 12),
     child: FeedProgressRegion(
       active: active,
-      height: 32,
+      height: 20,
       builder: (context) {
         final controller = widget.playerController;
         final total = active
             ? controller.duration.value
             : oldDuration ?? item.duration;
         final position = active ? controller.progress : oldPosition ?? 0;
-        return ProgressBar(
-          progress: position.clamp(0, total > 0 ? total : 0),
-          buffered: active ? controller.buffered.value : 0,
-          total: total > 0 ? total : 0,
-          progressBarColor: Colors.white,
-          baseBarColor: Colors.white24,
-          bufferedBarColor: Colors.white38,
-          thumbColor: Colors.white,
-          thumbGlowColor: Colors.white24,
-          barHeight: _seekSeconds == null ? 1.3 : 3.5,
-          thumbRadius: _seekSeconds == null ? 2 : 7,
-          thumbGlowRadius: 25,
-          onDragStart: active && total > 0
-              ? (details) {
-                  feedBack();
-                  controller.onSeekStart(details.seconds);
-                  setState(() => _seekSeconds = details.seconds.toDouble());
-                }
-              : null,
-          onDragUpdate: active && total > 0
-              ? (details) {
-                  if (!controller.isFileSource && controller.showSeekPreview)
-                    controller.updatePreviewIndex(details.seconds);
-                  controller.seekPosition.value = details.seconds;
-                  setState(() => _seekSeconds = details.seconds.toDouble());
-                }
-              : null,
-          onDragEnd: active
-              ? () {
-                  controller.onSeekEnd();
-                  if (mounted) setState(() => _seekSeconds = null);
-                }
-              : null,
-          onSeek: active && total > 0
-              ? (ms) {
-                  controller
-                    ..position.value = ms ~/ 1000
-                    ..onSeekEnd()
-                    ..seekTo(Duration(milliseconds: ms), isSeek: false);
-                  if (mounted) setState(() => _seekSeconds = null);
-                }
-              : null,
+        final detail = Get.find<VideoDetailController>(
+          tag: widget.introController.heroTag,
+        );
+        final trend =
+            active && controller.showDmChart && detail.showDmTrendChart.value
+            ? detail.dmTrend.value?.dataOrNull
+            : null;
+        return Stack(
+          alignment: Alignment.bottomCenter,
+          clipBehavior: Clip.hardEdge,
+          children: [
+            if (trend != null && trend.length > 1 && trend.any((v) => v > 0))
+              buildDmChart(ThemeUtils.theme.colorScheme.primary, trend, detail),
+            ProgressBar(
+              progress: position.clamp(0, total > 0 ? total : 0),
+              buffered: active ? controller.buffered.value : 0,
+              total: total > 0 ? total : 0,
+              progressBarColor: Colors.white,
+              baseBarColor: Colors.white24,
+              bufferedBarColor: Colors.white38,
+              thumbColor: Colors.white,
+              thumbGlowColor: Colors.white24,
+              barHeight: _seekSeconds == null ? 1.3 : 3.5,
+              thumbRadius: _seekSeconds == null ? 2 : 7,
+              thumbGlowRadius: 25,
+              onDragStart: active && total > 0
+                  ? (details) {
+                      feedBack();
+                      controller.onSeekStart(details.seconds);
+                      setState(() => _seekSeconds = details.seconds.toDouble());
+                    }
+                  : null,
+              onDragUpdate: active && total > 0
+                  ? (details) {
+                      if (!controller.isFileSource &&
+                          controller.showSeekPreview)
+                        controller.updatePreviewIndex(details.seconds);
+                      controller.seekPosition.value = details.seconds;
+                      setState(() => _seekSeconds = details.seconds.toDouble());
+                    }
+                  : null,
+              onDragEnd: active
+                  ? () {
+                      controller.onSeekEnd();
+                      if (mounted) setState(() => _seekSeconds = null);
+                    }
+                  : null,
+              onSeek: active && total > 0
+                  ? (ms) {
+                      controller
+                        ..position.value = ms ~/ 1000
+                        ..onSeekEnd()
+                        ..seekTo(Duration(milliseconds: ms), isSeek: false);
+                      if (mounted) setState(() => _seekSeconds = null);
+                    }
+                  : null,
+            ),
+          ],
         );
       },
     ),
@@ -1608,6 +1652,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     String label,
     VoidCallback? onTap, {
     Color color = Colors.white,
+    Widget? iconWidget,
     required String semantics,
     VoidCallback? onLongPress,
     VoidCallback? onStartTriple,
@@ -1615,6 +1660,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     Animation<double>? tripleAnimation,
   }) => FeedActionButton(
     icon: icon,
+    iconWidget: iconWidget,
     label: label,
     onTap: onTap,
     color: color,
