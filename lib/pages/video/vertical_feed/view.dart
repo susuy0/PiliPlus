@@ -768,7 +768,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     ),
   );
 
-  Widget _buildFeed(BuildContext context) => ColoredBox(
+  Widget _buildFeed(BuildContext context) => Material(
     color: Colors.black,
     child: FeedViewport(
       expanded: _commentsExpanded || _keyboardVisible,
