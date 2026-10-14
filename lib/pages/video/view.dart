@@ -1407,7 +1407,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       },
       child: Obx(
         () =>
-            !videoDetailController.videoState.value ||
+            (!videoDetailController.videoState.value &&
+                    !_verticalFeedActive.value) ||
                 !videoDetailController.autoPlay ||
                 plPlayerController?.videoController == null
             ? const SizedBox.shrink()

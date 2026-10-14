@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:PiliPlus/pages/video/vertical_feed/media_cache.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/frame_readiness.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/playback_commands.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/preloader.dart';
 
@@ -28,7 +29,11 @@ Uint8List movie({
 }) {
   final sidxSize = (version == 0 ? 32 : 40) + count * 12;
   final headerSize = 16 + sidxSize;
-  final bytes = Uint8List(headerSize + gap + count * 100);
+  final bytes = Uint8List(
+    headerSize +
+        gap +
+        count * (fragmentBytes > 1024 * 1024 ? 100 : fragmentBytes),
+  );
   final d = ByteData.sublistView(bytes);
   d.setUint32(0, 16);
   bytes.setRange(4, 8, 'ftyp'.codeUnits);
@@ -173,6 +178,90 @@ Future<void> main() async {
     },
   );
   await run(
+    'startup reads and MP4 footer probes do not wait for the uncached CDN',
+    () async {
+      for (final spelling in ['indexRange', 'index_range', 'IndexRange']) {
+        check(
+          FeedCacheTrack.fromSegmentBase('https://test.invalid/video', {
+                spelling: '0-99',
+              })?.indexEnd ==
+              99,
+          'index range spelling missed',
+        );
+      }
+      final o = await Origin.create(movie(count: 12, fragmentBytes: 65536));
+      final c = cache();
+      try {
+        final warm = await c.prepare([o.track], () => true);
+        check(
+          warm.byteCount ==
+              FeedMediaCache.startupBytes + FeedMediaCache.footerBytes,
+          'startup/footer byte budget incorrect',
+        );
+        final url = (await c.activate(warm))[o.url]!;
+        final before = o.ranges.length;
+        o.hold = Completer<void>();
+        final startup = await get(
+          url,
+          range: 'bytes=0-131071',
+        ).timeout(const Duration(seconds: 1));
+        final footer = await get(
+          url,
+          range: 'bytes=-65536',
+        ).timeout(const Duration(seconds: 1));
+        check(
+          same(startup.bytes, o.bytes.sublist(0, 131072)),
+          'initial decoder read changed',
+        );
+        check(
+          same(footer.bytes, o.bytes.sublist(o.bytes.length - 65536)),
+          'footer probe changed',
+        );
+        check(
+          o.ranges.length == before,
+          'decoder startup requested uncached bytes',
+        );
+      } finally {
+        await c.dispose();
+        await o.close();
+      }
+    },
+  );
+  await run(
+    'reused-player frame gate rejects old media, idle textures and buffering',
+    () async {
+      bool ready({
+        String path = 'new',
+        int width = 1080,
+        double texture = 1080,
+        bool buffering = false,
+        String picture = 'I',
+        int position = 0,
+      }) => FeedFrameReadiness.ready(
+        expectedPath: 'new',
+        path: path,
+        width: width,
+        height: 1920,
+        textureWidth: texture,
+        textureHeight: texture,
+        buffering: buffering,
+        pictureType: picture,
+        positionMs: position,
+        startMs: 0,
+      );
+      check(!ready(path: 'old'), 'old frame revealed');
+      check(!ready(width: 0), 'idle player revealed');
+      check(!ready(texture: 1), 'unrendered texture revealed');
+      check(!ready(buffering: true), 'buffering media revealed');
+      check(!ready(picture: ''), 'open completion treated as a decoded frame');
+      check(ready(), 'decoded first frame rejected');
+      check(
+        ready(picture: '', position: 140),
+        'playback fallback for unsupported frame property rejected',
+      );
+    },
+  );
+  await run(
     'cached audio and video prefix reads need no new network request',
     () async {
       final video = await Origin.create(movie());
@@ -209,7 +298,7 @@ Future<void> main() async {
     },
   );
   await run('range reads crossing the cache boundary, seeking, HEAD and suffix are exact', () async {
-    final o = await Origin.create(movie());
+    final o = await Origin.create(movie(count: 12, fragmentBytes: 65536));
     final c = cache();
     try {
       final warm = await c.prepare([o.track], () => true);

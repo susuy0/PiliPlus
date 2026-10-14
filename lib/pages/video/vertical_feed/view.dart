@@ -12,6 +12,7 @@ import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/video_surface.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/progress_region.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/common/design_tokens.dart';
@@ -87,6 +88,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   Timer? _preloadTimer;
   StreamSubscription<List<ConnectivityResult>>? _preloadNetwork;
   int? _preloadAid;
+  DateTime _preloadExpires = DateTime.fromMillisecondsSinceEpoch(0);
   bool _warming = false;
   bool _foreground = true;
   DateTime _preloadRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -314,16 +316,17 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                 player.buffered.value >= player.duration.value))) {
       if (_warming) {
         _stopPreload();
-        _preloadRetryAt = DateTime.now().add(const Duration(seconds: 15));
+        _preloadRetryAt = DateTime.now().add(const Duration(seconds: 2));
       }
       return;
     }
     final next = _feed.items[_feed.index + 1];
     if (_warming ||
-        _preloadAid == next.aid ||
+        (_preloadAid == next.aid && DateTime.now().isBefore(_preloadExpires)) ||
         DateTime.now().isBefore(_preloadRetryAt))
       return;
     _preloadAid = next.aid;
+    unawaited(FeedCover.prefetch(context, next.cover));
     _warming = true;
     bool ready;
     try {
@@ -333,9 +336,12 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
     } finally {
       _warming = false;
     }
+    if (ready && _preloadAid == next.aid) {
+      _preloadExpires = DateTime.now().add(const Duration(minutes: 4));
+    }
     if (!ready && _preloadAid == next.aid) {
       _preloadAid = null;
-      _preloadRetryAt = DateTime.now().add(const Duration(seconds: 30));
+      _preloadRetryAt = DateTime.now().add(const Duration(seconds: 3));
     }
   }
 
@@ -408,6 +414,8 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
   Future<void> _activate(int index) async {
     if (!mounted || _switching || index >= _feed.items.length) return;
     _rememberCurrent();
+    widget.playerController.beginFeedSwitch();
+    _preloadRetryAt = DateTime.fromMillisecondsSinceEpoch(0);
     final sourceFeed = _feed;
     final item = _feed.items[index];
     setState(() {
@@ -430,6 +438,7 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
       _playbackError = !success;
       if (success) _playingAid = item.aid!;
     });
+    if (success) _preloadNext();
     if (_feed.items.length - index <= 4) _feed.loadMore();
     _trimHistoryWhenIdle();
   }
@@ -743,12 +752,23 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                 fit: StackFit.expand,
                 children: [
                   FeedCover(src: item.cover),
-                  if (active &&
-                      !_systemPip &&
-                      !_switching &&
-                      !_playbackError &&
-                      item.aid == _playingAid)
-                    FeedPlayerReveal(child: widget.playerBuilder(context)),
+                  if (active && !_systemPip && !_playbackError)
+                    Obx(() {
+                      final frameReady =
+                          widget.playerController.feedFrameReady.value;
+                      final buffering =
+                          widget.playerController.isBuffering.value;
+                      final ready =
+                          !_switching && item.aid == _playingAid && frameReady;
+                      return FeedVideoSurface(
+                        video: FeedPlayerReveal(
+                          child: widget.playerBuilder(context),
+                        ),
+                        preview: FeedCover(src: item.cover),
+                        ready: ready,
+                        pending: !ready || buffering,
+                      );
+                    }),
                   if (active && _paused && !_switching && !_playbackError)
                     const Center(
                       child: IgnorePointer(
@@ -757,13 +777,6 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
                           size: 72,
                           color: Colors.white70,
                         ),
-                      ),
-                    ),
-                  if (active && _switching)
-                    const Center(
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
                       ),
                     ),
                   if (active && _playbackError)

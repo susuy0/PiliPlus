@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/pager.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/progress_region.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/cover.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/video_surface.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/chrome.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/follow_button.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -452,6 +453,78 @@ void main() {
       expect(pages.page, closeTo(1, .001));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'new media keeps its preview until a composed frame, without remounting video',
+    (tester) async {
+      final mounts = <String>[];
+      Widget surface(bool ready, bool pending) => MaterialApp(
+        home: FeedVideoSurface(
+          video: _LifetimeProbe(events: mounts),
+          preview: const ColoredBox(
+            key: ValueKey('preview'),
+            color: Colors.red,
+          ),
+          ready: ready,
+          pending: pending,
+        ),
+      );
+      await tester.pumpWidget(surface(false, true));
+      expect(mounts, ['mount']);
+      expect(find.byKey(const ValueKey('preview')), findsOneWidget);
+      expect(find.text('加载中...'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.pumpWidget(surface(true, false));
+      // A ready event may only uncover the preview on the following composition.
+      expect(find.byKey(const ValueKey('preview')), findsOneWidget);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('preview')), findsNothing);
+      expect(find.text('加载中...'), findsNothing);
+      expect(mounts, ['mount']);
+      await tester.pumpWidget(surface(false, true));
+      expect(find.byKey(const ValueKey('preview')), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 699));
+      expect(find.text('加载中...'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.text('加载中...'), findsOneWidget);
+      await tester.pumpWidget(surface(true, false));
+      await tester.pump();
+      expect(find.text('加载中...'), findsNothing);
+      expect(mounts, ['mount']);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(mounts, ['mount', 'dispose']);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'late ready callbacks cannot expose a replaced media and buffering keeps the last frame',
+    (tester) async {
+      Widget surface(bool ready, bool pending) => MaterialApp(
+        home: FeedVideoSurface(
+          video: const ColoredBox(color: Colors.blue),
+          preview: const ColoredBox(
+            key: ValueKey('preview'),
+            color: Colors.red,
+          ),
+          ready: ready,
+          pending: pending,
+        ),
+      );
+      await tester.pumpWidget(surface(true, false));
+      await tester.pumpWidget(surface(false, true));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('preview')), findsOneWidget);
+      await tester.pumpWidget(surface(true, false));
+      await tester.pump();
+      await tester.pumpWidget(surface(true, true));
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.byKey(const ValueKey('preview')), findsNothing);
+      expect(find.text('加载中...'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -1169,4 +1242,28 @@ class _PlayerProbeState extends State<_PlayerProbe> {
       child: Icon(Icons.movie_outlined, size: 80, color: Colors.white70),
     ),
   );
+}
+
+class _LifetimeProbe extends StatefulWidget {
+  const _LifetimeProbe({required this.events});
+  final List<String> events;
+  @override
+  State<_LifetimeProbe> createState() => _LifetimeProbeState();
+}
+
+class _LifetimeProbeState extends State<_LifetimeProbe> {
+  @override
+  void initState() {
+    super.initState();
+    widget.events.add('mount');
+  }
+
+  @override
+  void dispose() {
+    widget.events.add('dispose');
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const ColoredBox(color: Colors.blue);
 }

@@ -9,7 +9,8 @@ class FeedCacheTrack {
   final int indexEnd;
 
   static FeedCacheTrack? fromSegmentBase(String url, Map? base) {
-    final range = base?['indexRange'] ?? base?['index_range'];
+    final range =
+        base?['indexRange'] ?? base?['index_range'] ?? base?['IndexRange'];
     final parts = range?.toString().split('-');
     if (parts?.length != 2) return null;
     final end = int.tryParse(parts![1]);
@@ -80,17 +81,20 @@ class FeedPrefixPlan {
 }
 
 class _Prefix {
-  _Prefix(this.url, this.bytes, this.total, this.duration);
+  _Prefix(this.url, this.bytes, this.total, this.duration, this.footer);
   final String url;
   final Uint8List bytes;
   final int total;
   final Duration duration;
+  final Uint8List footer;
+  int get footerStart => total - footer.length;
 }
 
 class FeedCachedMedia {
   FeedCachedMedia(this._tracks);
   final List<_Prefix> _tracks;
-  int get byteCount => _tracks.fold(0, (n, t) => n + t.bytes.length);
+  int get byteCount =>
+      _tracks.fold(0, (n, t) => n + t.bytes.length + t.footer.length);
   Duration get duration =>
       _tracks.map((t) => t.duration).reduce((a, b) => a < b ? a : b);
 }
@@ -102,6 +106,11 @@ class FeedMediaCache {
   final String userAgent;
   final String referer;
   static const maxBytes = 32 * 1024 * 1024;
+  // A demuxer's initial AVIO read can exceed three seconds of low-bitrate
+  // audio/video. Cache enough bytes for that read as well as complete >=3s
+  // fragments, otherwise even the first frame waits for the remote tail.
+  static const startupBytes = 256 * 1024;
+  static const footerBytes = 64 * 1024;
   final _active = <String, _Prefix>{};
   final _warmClients = <HttpClient>{};
   final _streams = <HttpClient>{};
@@ -129,26 +138,46 @@ class FeedMediaCache {
         if (!current() || _closed) throw StateError('cancelled preload');
         final head = await _read(client, track.url, 0, track.indexEnd, current);
         final plan = FeedPrefixPlan.parse(head.bytes);
-        if (plan.end >= head.total || plan.end + 1 > maxBytes - used) {
+        final end = min(head.total - 1, max(plan.end, startupBytes - 1));
+        final footerStart = max(end + 1, head.total - footerBytes);
+        if (plan.end >= head.total ||
+            end + 1 + head.total - footerStart > maxBytes - used) {
           throw const FormatException('media prefix outside cache budget');
         }
-        final tail = plan.end > track.indexEnd
+        final tail = end > track.indexEnd
             ? await _read(
                 client,
                 track.url,
                 track.indexEnd + 1,
-                plan.end,
+                end,
                 current,
               )
             : null;
         if (tail != null && tail.total != head.total)
           throw const FormatException('media length changed');
-        final bytes = Uint8List(plan.end + 1)
+        final bytes = Uint8List(end + 1)
           ..setRange(0, head.bytes.length, head.bytes);
         if (tail != null)
           bytes.setRange(head.bytes.length, bytes.length, tail.bytes);
-        prefixes.add(_Prefix(track.url, bytes, head.total, plan.duration));
-        used += bytes.length;
+        // Fragmented MP4 readers may seek to mfra/mfro at EOF before decoding
+        // the first cached fragment. Include that probe, without fetching the
+        // unplayed middle of the video.
+        final footer = footerStart < head.total
+            ? await _read(
+                client,
+                track.url,
+                footerStart,
+                head.total - 1,
+                current,
+              )
+            : null;
+        if (footer != null && footer.total != head.total)
+          throw const FormatException('media length changed');
+        final footerData = footer?.bytes ?? Uint8List(0);
+        prefixes.add(
+          _Prefix(track.url, bytes, head.total, plan.duration, footerData),
+        );
+        used += bytes.length + footerData.length;
       }
       if (!current() || _closed) throw StateError('cancelled preload');
       return FeedCachedMedia(prefixes);
@@ -294,6 +323,7 @@ class FeedMediaCache {
         );
       }
       out.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      out.bufferOutput = false;
       out.headers.contentType = ContentType('video', 'mp4');
       out.contentLength = end - start + 1;
       if (incoming.method == 'HEAD') {
@@ -306,7 +336,8 @@ class FeedMediaCache {
         await out.flush();
       }
       final remoteStart = max(start, track.bytes.length);
-      if (remoteStart <= end) {
+      final remoteEnd = min(end, track.footerStart - 1);
+      if (remoteStart <= remoteEnd) {
         client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
         _streams.add(client);
         unawaited(
@@ -324,13 +355,23 @@ class FeedMediaCache {
         upstream = await client
             .getUrl(Uri.parse(track.url))
             .timeout(const Duration(seconds: 5));
-        _headers(upstream, remoteStart, end);
+        _headers(upstream, remoteStart, remoteEnd);
         final response = await upstream.close().timeout(
           const Duration(seconds: 5),
         );
-        if (_validate(response, remoteStart, end) != track.total)
+        if (_validate(response, remoteStart, remoteEnd) != track.total)
           throw const FormatException('media changed');
         await out.addStream(response.timeout(const Duration(seconds: 10)));
+      }
+      final footerStart = max(start, track.footerStart);
+      if (footerStart <= end) {
+        out.add(
+          Uint8List.sublistView(
+            track.footer,
+            footerStart - track.footerStart,
+            end + 1 - track.footerStart,
+          ),
+        );
       }
       await out.close();
     } on FormatException {

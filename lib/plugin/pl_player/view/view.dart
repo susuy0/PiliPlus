@@ -1848,9 +1848,13 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         ],
 
         Obx(() {
-          if (plPlayerController.dataStatus.loading ||
-              (plPlayerController.isBuffering.value &&
-                  plPlayerController.playerStatus.isPlaying)) {
+          final loading = plPlayerController.dataStatus.loading;
+          final buffering = plPlayerController.isBuffering.value;
+          // The moving feed page owns one delayed loading indicator and keeps
+          // its preview above the initializing texture.
+          if (!widget.verticalFeedMode &&
+              (loading ||
+                  (buffering && plPlayerController.playerStatus.isPlaying))) {
             return Center(
               child: GestureDetector(
                 onTap: plPlayerController.refreshPlayer,

@@ -18,6 +18,7 @@ import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/preloader.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/frame_readiness.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/media_cache.dart';
 import 'package:PiliPlus/pages/video/vertical_feed/playback_commands.dart';
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
@@ -87,6 +88,65 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     release: _feedCache.release,
   );
   String? _feedPreloadOwner;
+  final feedFrameReady = true.obs;
+  Timer? _feedFrameTimer;
+  int _feedFrameGeneration = 0;
+
+  void beginFeedSwitch() {
+    _feedFrameGeneration++;
+    _feedFrameTimer?.cancel();
+    _feedFrameTimer = null;
+    feedFrameReady.value = false;
+  }
+
+  void _watchFeedFrame(Player player, Duration? start) {
+    if (!verticalFeedMode) return;
+    final generation = _feedFrameGeneration;
+    _feedFrameTimer?.cancel();
+    _feedFrameTimer = Timer.periodic(const Duration(milliseconds: 40), (timer) {
+      if (_playerCount == 0 ||
+          generation != _feedFrameGeneration ||
+          !verticalFeedMode ||
+          !identical(player, _videoPlayerController)) {
+        timer.cancel();
+        return;
+      }
+      if (onlyPlayAudio.value &&
+          !player.state.buffering &&
+          player.state.duration > Duration.zero) {
+        timer.cancel();
+        feedFrameReady.value = true;
+        return;
+      }
+      final texture = _videoController?.rect.value;
+      if (texture == null ||
+          _videoController?.id.value == null ||
+          player.state.width <= 0 ||
+          player.state.height <= 0 ||
+          player.state.buffering)
+        return;
+      try {
+        final ready = FeedFrameReadiness.ready(
+          expectedPath: player.current.last.uri,
+          path: player.getProperty('path'),
+          width: player.state.width,
+          height: player.state.height,
+          textureWidth: texture.width,
+          textureHeight: texture.height,
+          buffering: player.state.buffering,
+          pictureType: player.getProperty('video-frame-info/picture-type'),
+          positionMs: player.state.position.inMilliseconds,
+          startMs: start?.inMilliseconds ?? 0,
+        );
+        if (ready) {
+          timer.cancel();
+          feedFrameReady.value = true;
+        }
+      } catch (_) {
+        // Disposal or a not-yet-loaded native media is not a ready frame.
+      }
+    });
+  }
 
   void cancelFeedPreload({String? owner}) {
     if (owner != null && owner != _feedPreloadOwner) return;
@@ -760,6 +820,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }) async {
     try {
       _processing = true;
+      if (verticalFeedMode) beginFeedSwitch();
       this.isLive = isLive;
       _videoType = videoType ?? VideoType.ugc;
       this.width = width;
@@ -789,6 +850,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (_playerCount == 0) {
         return;
       }
+      // Clear the previous media's progress before open, never after native
+      // buffer events have arrived (a fully cached clip may not emit it again).
+      position.value = buffered.value = seekTo?.inSeconds ?? 0;
       // 配置Player 音轨、字幕等等
       await _createVideoController(dataSource, seekTo, volume);
 
@@ -801,7 +865,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
 
       updateDuration(duration ?? _videoPlayerController!.state.duration);
-      position.value = buffered.value = seekTo?.inSeconds ?? 0;
+      position.value = _videoPlayerController!.state.position.inSeconds;
+      buffered.value = _videoPlayerController!.state.buffer.inSeconds;
 
       dataStatus.value = .loaded;
 
@@ -971,6 +1036,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         ...liveBuffer
       else
         ...buffer,
+      // Validated DASH/MP4 initialization carries codec/track metadata. Do not
+      // scan unplayed fragments beyond the warm prefix to rediscover it.
+      if (cachedUrls.isNotEmpty) 'demuxer-lavf-probe-info': 'no',
     };
 
     String video = cachedUrls[dataSource.videoSource] ?? dataSource.videoSource;
@@ -1006,6 +1074,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return _createVideoController(dataSource, seekTo, volume);
     }
     _feedCache.retain(cachedUrls.values.toSet());
+    _watchFeedFrame(player, seekTo);
   }
 
   Future<void>? refreshPlayer() {
@@ -1023,7 +1092,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               ? audio!
               : 'edl://!no_chapters;%${uri.length}%$uri;!new_stream;!no_chapters;%${audio!.length}%$audio';
         }
-        media = Media(uri, start: ctr.state.position, extras: media.extras);
+        final extras = {...?media.extras}..remove('demuxer-lavf-probe-info');
+        media = Media(uri, start: ctr.state.position, extras: extras);
         _feedCache.retain({});
       } else if (!isLive)
         media = media.copyWith(start: ctr.state.position);
@@ -1782,6 +1852,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     _playerCount = 0;
+    _feedFrameGeneration++;
+    _feedFrameTimer?.cancel();
     _volumeLifetime.dispose(FlutterVolumeController.removeListener);
     volumeTimer?.cancel();
     _feedPreloader.dispose();
