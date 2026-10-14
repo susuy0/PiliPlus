@@ -1700,7 +1700,15 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
               ),
         footer: Column(
           children: [
-            _progress(item, active, saved?.duration, saved?.position),
+            _progress(
+              item,
+              active &&
+                  !_switching &&
+                  !_playbackError &&
+                  widget.playerController.bvid == item.bvid,
+              saved?.duration,
+              saved?.position,
+            ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),

@@ -1435,7 +1435,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           ? 44.0
           : _verticalFeedActive.value &&
                 !videoDetailController.plPlayerController.feedCinemaMode
-          ? 48.0
+          ? 60.0
           : 4.0,
     );
     final player = videoDetailController.plPlayerController;
