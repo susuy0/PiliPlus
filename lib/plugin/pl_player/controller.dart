@@ -1216,7 +1216,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           nowMs: DateTime.now().millisecondsSinceEpoch,
           positionMs: player.state.position.inMilliseconds,
           frameSerial: serial,
-          eligible: serial != null && serial >= 0,
+          eligible:
+              serial != null && (Platform.isMacOS ? serial >= 0 : serial > 0),
         )) {
           // A confirmed lack of native texture updates, never an idle static scene.
           // Re-sync the decoder at its current position, at most twice per media.
