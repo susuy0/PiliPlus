@@ -1,4 +1,5 @@
 import 'package:PiliPlus/pages/video/vertical_feed/collection_source.dart';
+import 'package:PiliPlus/pages/video/vertical_feed/frame_readiness.dart';
 import 'package:PiliPlus/models_new/video/video_detail/data.dart';
 import 'package:PiliPlus/models_new/video/video_detail/ugc_season.dart';
 import 'package:PiliPlus/pages/shorts/controller.dart';
@@ -1455,6 +1456,81 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  test('native frame gate rejects reused and zero-frame textures', () {
+    expect(FeedFrameReadiness.freshTexture(serial: 0, before: null), isFalse);
+    expect(FeedFrameReadiness.freshTexture(serial: 12, before: 12), isFalse);
+    expect(FeedFrameReadiness.freshTexture(serial: 11, before: 12), isFalse);
+    expect(FeedFrameReadiness.freshTexture(serial: 13, before: 12), isTrue);
+    expect(FeedFrameReadiness.freshTexture(serial: 1, before: null), isTrue);
+    expect(FeedFrameReadiness.freshTexture(serial: null, before: 12), isTrue);
+  });
+
+  testWidgets(
+    'desktop portrait stage centers chrome and docks comments beside it',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1440, 900);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      Widget stage({double panel = 0}) => MaterialApp(
+        home: FeedDesktopFrame(
+          mediaAspectRatio: 9 / 16,
+          panelWidth: panel,
+          child: FeedViewport(
+            video: const ColoredBox(
+              key: ValueKey('desktop-picture'),
+              color: Colors.blue,
+            ),
+            controls: const SizedBox.shrink(),
+            comments: panel > 0 ? const Text('desktop-comments') : null,
+          ),
+        ),
+      );
+      await tester.pumpWidget(stage());
+      await tester.pumpAndSettle();
+      final picture = find.byKey(const ValueKey('desktop-picture'));
+      expect(tester.getSize(picture).width, closeTo(550.25, .01));
+      expect(tester.getCenter(picture).dx, closeTo(720, .01));
+      await tester.pumpWidget(stage(panel: 380));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(picture).width, closeTo(550.25, .01));
+      expect(
+        tester.getTopLeft(find.text('desktop-comments')).dx,
+        greaterThanOrEqualTo(tester.getBottomRight(picture).dx),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('desktop aspect changes and PiP resize keep one mounted player', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1440, 900);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final events = <String>[];
+    Widget stage(double ratio, {bool enabled = true}) => MaterialApp(
+      home: FeedDesktopFrame(
+        mediaAspectRatio: ratio,
+        enabled: enabled,
+        child: _LifetimeProbe(events: events),
+      ),
+    );
+    await tester.pumpWidget(stage(9 / 16));
+    await tester.pumpWidget(stage(16 / 9));
+    expect(tester.getSize(find.byType(_LifetimeProbe)).width, 1100);
+    tester.view.physicalSize = const Size(280, 498);
+    await tester.pumpWidget(stage(9 / 16, enabled: false));
+    expect(tester.getSize(find.byType(_LifetimeProbe)).width, 280);
+    tester.view.physicalSize = const Size(1440, 900);
+    await tester.pumpWidget(stage(9 / 16));
+    expect(events, ['mount']);
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(events, ['mount', 'dispose']);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('small window resize retains the current page and one player', (
     tester,

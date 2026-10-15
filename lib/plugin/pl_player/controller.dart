@@ -47,6 +47,7 @@ import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/ios/pip_helper.dart';
+import 'package:PiliPlus/utils/video_texture_frames.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -104,19 +105,31 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   final feedFrameReady = true.obs;
   Timer? _feedFrameTimer;
   int _feedFrameGeneration = 0;
+  Future<int?>? _feedFrameBaseline;
+  int? _feedBaselineTextureId;
 
   void beginFeedSwitch() {
     _feedFrameGeneration++;
     _feedFrameTimer?.cancel();
     _feedFrameTimer = null;
     feedFrameReady.value = false;
+    final textureId = _videoController?.id.value;
+    _feedBaselineTextureId = textureId;
+    _feedFrameBaseline = Platform.isMacOS && textureId != null
+        ? VideoTextureFrames.serial(textureId)
+        : null;
   }
 
   void _watchFeedFrame(Player player, Duration? start) {
     if (!verticalFeedMode) return;
     final generation = _feedFrameGeneration;
+    final baseline = _feedFrameBaseline;
+    final baselineTextureId = _feedBaselineTextureId;
+    var checking = false;
     _feedFrameTimer?.cancel();
-    _feedFrameTimer = Timer.periodic(const Duration(milliseconds: 40), (timer) {
+    _feedFrameTimer = Timer.periodic(const Duration(milliseconds: 40), (
+      timer,
+    ) async {
       if (_playerCount == 0 ||
           generation != _feedFrameGeneration ||
           !verticalFeedMode ||
@@ -124,6 +137,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         timer.cancel();
         return;
       }
+      if (checking) return;
       if (onlyPlayAudio.value &&
           !player.state.buffering &&
           player.state.duration > Duration.zero) {
@@ -152,11 +166,30 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           startMs: start?.inMilliseconds ?? 0,
         );
         if (ready) {
+          checking = true;
+          if (Platform.isMacOS) {
+            final textureId = _videoController!.id.value!;
+            final before = baselineTextureId == textureId
+                ? await baseline
+                : null;
+            final serial = await VideoTextureFrames.serial(textureId);
+            if (generation != _feedFrameGeneration ||
+                !identical(player, _videoPlayerController) ||
+                textureId != _videoController?.id.value)
+              return;
+            if (!FeedFrameReadiness.freshTexture(
+              serial: serial,
+              before: before,
+            ))
+              return;
+          }
           timer.cancel();
           feedFrameReady.value = true;
         }
       } catch (_) {
         // Disposal or a not-yet-loaded native media is not a ready frame.
+      } finally {
+        checking = false;
       }
     });
   }
@@ -1144,7 +1177,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void _startFrameStallWatch() {
-    if (!Platform.isIOS) return;
+    if (!Platform.isIOS && !Platform.isMacOS) return;
     _frameStallTimer?.cancel();
     _frameStallTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (_frameStallProbeBusy || _playerCount == 0) return;
@@ -1153,6 +1186,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if (player == null || textureId == null) return;
       final generation = playbackGeneration;
       final eligible =
+          (Platform.isIOS || verticalFeedMode) &&
           !_processing &&
           !isLive &&
           !onlyPlayAudio.value &&
@@ -1171,7 +1205,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       _frameStallProbeBusy = true;
       try {
-        final serial = await IOSPipHelper.frameSerial(textureId);
+        final serial = await VideoTextureFrames.serial(textureId);
         if (generation != playbackGeneration ||
             !identical(player, _videoPlayerController) ||
             !player.state.playing ||
@@ -1182,7 +1216,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           nowMs: DateTime.now().millisecondsSinceEpoch,
           positionMs: player.state.position.inMilliseconds,
           frameSerial: serial,
-          eligible: serial != null && serial > 0,
+          eligible: serial != null && serial >= 0,
         )) {
           // A confirmed lack of native texture updates, never an idle static scene.
           // Re-sync the decoder at its current position, at most twice per media.

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:PiliPlus/common/widgets/flutter/text_field/editable_text.dart'
     as pili;
@@ -235,15 +236,39 @@ class _WheelHitBox extends RenderProxyBox {
 
 class FeedDesktopFrame extends StatelessWidget {
   final bool enabled;
-  const FeedDesktopFrame({super.key, required this.child, this.enabled = true});
+  const FeedDesktopFrame({
+    super.key,
+    required this.child,
+    this.enabled = true,
+    this.mediaAspectRatio = 16 / 9,
+    this.panelWidth = 0,
+  });
   final Widget child;
+  final double mediaAspectRatio;
+  final double panelWidth;
   @override
   Widget build(BuildContext context) => ColoredBox(
     color: Colors.black,
     child: Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: enabled ? 1100 : double.infinity),
-        child: child,
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final ratio = mediaAspectRatio.isFinite && mediaAspectRatio > 0
+              ? mediaAspectRatio
+              : 9 / 16;
+          // Keep portrait chrome near the fitted picture. Landscape archives
+          // retain a wide stage; PiP and cinema use their whole window.
+          final stageWidth = ratio < 1
+              ? math.max(360.0, math.max(0.0, box.maxHeight - 64) * ratio + 80)
+              : 1100.0;
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: enabled
+                  ? math.min(1480.0, math.min(1100.0, stageWidth) + panelWidth)
+                  : double.infinity,
+            ),
+            child: child,
+          );
+        },
       ),
     ),
   );

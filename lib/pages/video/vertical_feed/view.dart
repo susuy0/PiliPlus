@@ -876,11 +876,25 @@ class _VerticalVideoFeedState extends State<VerticalVideoFeed>
 
   Widget _desktopFrame(BuildContext context) {
     final feed = _buildFeed(context);
+    final item = _feed.items[_feed.index];
+    final dimension = item.dimension;
+    final width = dimension?.width ?? 0;
+    final height = dimension?.height ?? 0;
+    final aspectRatio = width > 0 && height > 0
+        ? width / height
+        : item.verticalHint
+        ? 9 / 16
+        : 16 / 9;
     return FeedDesktopInput(
       keyboardEnabled: widget.playerController.keyboardControl,
       navigationEnabled: _canNavigate,
       onCommand: _desktopCommand,
-      child: FeedDesktopFrame(enabled: !_desktopPip && !_cinema, child: feed),
+      child: FeedDesktopFrame(
+        enabled: !_desktopPip && !_cinema,
+        mediaAspectRatio: aspectRatio,
+        panelWidth: _commentsOpen ? 380 : 0,
+        child: feed,
+      ),
     );
   }
 
